@@ -1,6 +1,7 @@
 // SQLite database for storing files, chunks, and embeddings
 
 import Database from 'better-sqlite3';
+import { basename } from 'node:path';
 import type { Config, FileRecord, ChunkRecord, Observation, Session } from '../types.js';
 import { hashContent } from '../utils/hash.js';
 
@@ -66,17 +67,7 @@ export class MemoryDB {
     `);
 
     // Create FTS5 virtual table for full-text search if it doesn't exist
-    try {
-      this.db.exec(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
-          content,
-          content_rowid='id',
-          tokenize='porter unicode61'
-        );
-      `);
-    } catch {
-      // FTS5 might not be available or already exists differently
-    }
+    this.ensureFtsTable();
 
     // Add observation metadata columns (safe migration - ignore if already exist)
     try {
@@ -137,6 +128,75 @@ export class MemoryDB {
     }
   }
 
+  private getFilePathById(fileId: number): string | null {
+    const row = this.db.prepare('SELECT path FROM files WHERE id = ?').get(fileId) as { path: string } | undefined;
+    return row?.path ?? null;
+  }
+
+  private getFilenameForPath(filePath: string): string {
+    if (!filePath) return '';
+    return basename(filePath);
+  }
+
+  private tokenizePath(filePath: string): string {
+    if (!filePath) return '';
+    const normalized = filePath.replace(/\\/g, '/');
+    const parts = normalized.split(/[\/\s._-]+/).filter(Boolean);
+    return parts.join(' ');
+  }
+
+  private extractHeadingsFromContent(content: string): string {
+    const headings: string[] = [];
+    const lines = content.split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^#{1,6}\s+/.test(trimmed)) {
+        const text = trimmed.replace(/^#{1,6}\s+/, '').trim();
+        if (text.length > 0 && !headings.includes(text)) {
+          headings.push(text);
+        }
+      }
+    }
+    return headings.join(' ');
+  }
+
+  private ensureFtsTable(): void {
+    try {
+      this.db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+          content,
+          filename,
+          path_tokens,
+          headings,
+          content_rowid='id',
+          tokenize='porter unicode61'
+        );
+      `);
+
+      const columns = this.db.prepare('PRAGMA table_info(chunks_fts)').all() as Array<{ name: string }>;
+      const columnNames = new Set(columns.map(col => col.name));
+      const required = ['content', 'filename', 'path_tokens', 'headings'];
+      const missing = required.some(col => !columnNames.has(col));
+
+      if (missing) {
+        this.db.exec('DROP TABLE IF EXISTS chunks_fts');
+        this.db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+            content,
+            filename,
+            path_tokens,
+            headings,
+            content_rowid='id',
+            tokenize='porter unicode61'
+          );
+        `);
+        this.rebuildFTS();
+      }
+    } catch {
+      // FTS5 might not be available or already exists differently
+    }
+  }
+
   getFile(path: string): FileRecord | undefined {
     const row = this.db.prepare('SELECT * FROM files WHERE path = ?').get(path) as {
       id: number;
@@ -192,7 +252,8 @@ export class MemoryDB {
     lineEnd: number,
     embedding: Float32Array,
     observation?: Observation,
-    sessionId?: string
+    sessionId?: string,
+    ftsMeta?: { filePath?: string; headings?: string[] }
   ): void {
     const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const contentHash = hashContent(content);
@@ -209,10 +270,17 @@ export class MemoryDB {
 
     // Also insert into FTS5 index
     try {
+      const filePath = ftsMeta?.filePath ?? this.getFilePathById(fileId) ?? '';
+      const filename = this.getFilenameForPath(filePath);
+      const pathTokens = this.tokenizePath(filePath);
+      const headings = ftsMeta?.headings?.length
+        ? ftsMeta.headings.join(' ')
+        : this.extractHeadingsFromContent(content);
+
       this.db.prepare(`
-        INSERT INTO chunks_fts (rowid, content)
-        VALUES (?, ?)
-      `).run(result.lastInsertRowid, content);
+        INSERT INTO chunks_fts (rowid, content, filename, path_tokens, headings)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(result.lastInsertRowid, content, filename, pathTokens, headings);
     } catch {
       // FTS5 might not be available
     }
@@ -280,7 +348,7 @@ export class MemoryDB {
       if (!ftsQuery) return [];
 
       const rows = this.db.prepare(`
-        SELECT rowid, bm25(chunks_fts) as rank
+        SELECT rowid, bm25(chunks_fts, 1.0, 4.0, 2.0, 3.0) as rank
         FROM chunks_fts
         WHERE chunks_fts MATCH ?
         ORDER BY rank
@@ -338,10 +406,25 @@ export class MemoryDB {
     try {
       // Clear and rebuild
       this.db.exec('DELETE FROM chunks_fts');
-      this.db.exec(`
-        INSERT INTO chunks_fts (rowid, content)
-        SELECT id, content FROM chunks
+      const rows = this.db.prepare(`
+        SELECT c.id, c.content, f.path as file_path
+        FROM chunks c
+        JOIN files f ON c.file_id = f.id
+      `).all() as Array<{ id: number; content: string; file_path: string }>;
+
+      const insertStmt = this.db.prepare(`
+        INSERT INTO chunks_fts (rowid, content, filename, path_tokens, headings)
+        VALUES (?, ?, ?, ?, ?)
       `);
+
+      this.withTransaction(() => {
+        for (const row of rows) {
+          const filename = this.getFilenameForPath(row.file_path);
+          const pathTokens = this.tokenizePath(row.file_path);
+          const headings = this.extractHeadingsFromContent(row.content);
+          insertStmt.run(row.id, row.content, filename, pathTokens, headings);
+        }
+      });
     } catch {
       // FTS5 might not be available
     }

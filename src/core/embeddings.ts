@@ -10,6 +10,20 @@ const PARALLEL_REQUESTS = 4;  // Fire multiple batches concurrently
 // LRU cache for query embeddings (max 200 entries)
 const queryEmbeddingCache = new LruCache<string, Float32Array>(200);
 
+export function normalizeEmbedding(embedding: Float32Array): Float32Array {
+  let sumSquares = 0;
+  for (let i = 0; i < embedding.length; i++) {
+    const v = embedding[i];
+    sumSquares += v * v;
+  }
+  const norm = Math.sqrt(sumSquares);
+  if (norm === 0 || !Number.isFinite(norm)) return embedding;
+  for (let i = 0; i < embedding.length; i++) {
+    embedding[i] = embedding[i] / norm;
+  }
+  return embedding;
+}
+
 export async function getEmbedding(
   text: string,
   config: Config
@@ -48,7 +62,7 @@ export async function getEmbeddingsBatch(
     if (!Array.isArray(embedding)) {
       throw new Error('Invalid embedding response format');
     }
-    return new Float32Array(embedding);
+    return normalizeEmbedding(new Float32Array(embedding));
   });
 }
 

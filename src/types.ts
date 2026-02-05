@@ -43,6 +43,18 @@ export interface SearchResult {
   chunkId?: number;
   contentHash?: string;
   fullContent?: string;
+  explain?: SearchExplain;
+}
+
+export interface SearchExplain {
+  rrfScore?: number;
+  rrfRank?: number;
+  bm25Rank?: number;
+  bm25Score?: number;
+  semanticScore?: number;
+  blendWeights?: { bm25: number; semantic: number };
+  rerankerScore?: number;
+  rerankerWeights?: { retrieval: number; reranker: number };
 }
 
 export interface EmbeddingResponse {

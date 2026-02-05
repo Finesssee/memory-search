@@ -11,7 +11,8 @@ export function registerIndexCommand(program: Command): void {
     .command('index')
     .description('Index or reindex checkpoint files')
     .option('--force', 'Force re-embed all files')
-    .action(async (options: { force?: boolean }) => {
+    .option('--prune', 'Delete indexed files that no longer exist on disk')
+    .action(async (options: { force?: boolean; prune?: boolean }) => {
       const config = loadConfig();
 
       // Check if embedding server is running
@@ -29,6 +30,7 @@ export function registerIndexCommand(program: Command): void {
 
       const result = await indexFiles(config, {
         force: options.force,
+        prune: options.prune,
         onProgress: (p) => {
           process.stdout.write(
             `\r${chalk.cyan(`[${p.processed}/${p.total}]`)} ${p.file.slice(-50).padEnd(50)}`
@@ -41,6 +43,9 @@ export function registerIndexCommand(program: Command): void {
       console.log('\n');
       console.log(chalk.green(`✓ Indexed ${result.indexed} files`));
       console.log(chalk.gray(`  Skipped: ${result.skipped} (unchanged)`));
+      if (options.prune) {
+        console.log(chalk.gray(`  Pruned: ${result.pruned} (missing on disk)`));
+      }
       console.log(chalk.gray(`  Time: ${elapsed}s`));
 
       if (result.errors.length > 0) {

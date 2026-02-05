@@ -14,7 +14,8 @@ export function registerSearchCommand(program: Command): void {
     .option('-l, --limit <n>', 'Number of results', '5')
     .option('-f, --format <type>', 'Output format (human|json)', 'human')
     .option('-e, --expand', 'Expand query into variations for better recall')
-    .action(async (query: string, options: { limit: string; format: string; expand?: boolean }) => {
+    .option('--explain', 'Show per-result score breakdown')
+    .action(async (query: string, options: { limit: string; format: string; expand?: boolean; explain?: boolean }) => {
       const config = loadConfig();
       config.searchTopK = parseInt(options.limit, 10);
       config.expandQueries = options.expand ?? false;
@@ -62,6 +63,26 @@ export function registerSearchCommand(program: Command): void {
             if (r.snippet.split('\n').length > 5) {
               console.log(chalk.gray('    ...'));
             }
+
+            if (options.explain && r.explain) {
+              const explain = r.explain;
+              const bm25Rank = explain.bm25Rank ? `${explain.bm25Rank}` : 'n/a';
+              const bm25Score = Number.isFinite(explain.bm25Score) ? explain.bm25Score!.toFixed(3) : 'n/a';
+              const semanticScore = Number.isFinite(explain.semanticScore) ? explain.semanticScore!.toFixed(3) : 'n/a';
+              const rrfScore = Number.isFinite(explain.rrfScore) ? explain.rrfScore!.toFixed(4) : 'n/a';
+              const rerankerScore = Number.isFinite(explain.rerankerScore) ? explain.rerankerScore!.toFixed(3) : 'n/a';
+              const blendWeights = explain.blendWeights
+                ? `${explain.blendWeights.bm25.toFixed(2)}/${explain.blendWeights.semantic.toFixed(2)}`
+                : 'n/a';
+              const rerankerWeights = explain.rerankerWeights
+                ? `${explain.rerankerWeights.retrieval.toFixed(2)}/${explain.rerankerWeights.reranker.toFixed(2)}`
+                : 'n/a';
+
+              console.log(chalk.gray(`    Explain: rrf=${rrfScore} bm25Rank=${bm25Rank} bm25Score=${bm25Score}`));
+              console.log(chalk.gray(`             semanticScore=${semanticScore} blend(bm25/sem)=${blendWeights}`));
+              console.log(chalk.gray(`             rerankerScore=${rerankerScore} blend(retrieval/rerank)=${rerankerWeights}`));
+            }
+
             console.log();
           }
         }

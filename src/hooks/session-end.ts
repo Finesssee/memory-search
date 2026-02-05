@@ -214,7 +214,17 @@ async function indexCaptures(captures: EnhancedCapture[], sessionId?: string): P
     db.withTransaction(() => {
       for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        db.insertChunk(fileId, i, chunk.content, chunk.lineStart, chunk.lineEnd, embeddings[i], combinedObservation, sessionId);
+        db.insertChunk(
+          fileId,
+          i,
+          chunk.content,
+          chunk.lineStart,
+          chunk.lineEnd,
+          embeddings[i],
+          combinedObservation,
+          sessionId,
+          { filePath, headings: chunk.headings }
+        );
 
         // Increment session capture count for each chunk
         if (sessionId) {

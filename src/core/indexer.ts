@@ -19,12 +19,13 @@ export interface IndexProgress {
 
 export async function indexFiles(
   config: Config,
-  options: { force?: boolean; onProgress?: (p: IndexProgress) => void } = {}
-): Promise<{ indexed: number; skipped: number; errors: string[] }> {
+  options: { force?: boolean; prune?: boolean; onProgress?: (p: IndexProgress) => void } = {}
+): Promise<{ indexed: number; skipped: number; pruned: number; errors: string[] }> {
   const db = new MemoryDB(config);
   const errors: string[] = [];
   let indexed = 0;
   let skipped = 0;
+  let pruned = 0;
 
   try {
     // Find all markdown files in sources
@@ -40,6 +41,7 @@ export async function indexFiles(
     }
 
     const total = files.length;
+    const normalizedPaths = new Set<string>();
 
     // Collect all work to do first
     interface FileWork {
@@ -47,13 +49,14 @@ export async function indexFiles(
       normalizedPath: string;
       mtime: number;
       contentHash: string;
-      chunks: { content: string; lineStart: number; lineEnd: number }[];
+      chunks: { content: string; lineStart: number; lineEnd: number; headings?: string[] }[];
     }
     const work: FileWork[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const normalizedPath = file.replace(/\//g, '\\');
+      normalizedPaths.add(normalizedPath);
 
       options.onProgress?.({
         total,
@@ -106,6 +109,16 @@ export async function indexFiles(
       }
     }
 
+    if (options.prune) {
+      const existingFiles = db.getAllFiles();
+      for (const existing of existingFiles) {
+        if (!normalizedPaths.has(existing.path)) {
+          db.deleteFile(existing.path);
+          pruned++;
+        }
+      }
+    }
+
     // Now embed all chunks at once with parallel processing
     const allChunks: { work: FileWork; chunkIdx: number; content: string }[] = [];
     for (const w of work) {
@@ -115,7 +128,7 @@ export async function indexFiles(
     }
 
     if (allChunks.length === 0) {
-      return { indexed: 0, skipped, errors };
+      return { indexed: 0, skipped, pruned, errors };
     }
 
     // Get all embeddings in parallel with document prefix
@@ -143,7 +156,17 @@ export async function indexFiles(
           }
 
           const fileId = (w as FileWork & { fileId: number }).fileId;
-          db.insertChunk(fileId, chunkIdx, chunk.content, chunk.lineStart, chunk.lineEnd, embeddings[i]);
+          db.insertChunk(
+            fileId,
+            chunkIdx,
+            chunk.content,
+            chunk.lineStart,
+            chunk.lineEnd,
+            embeddings[i],
+            undefined,
+            undefined,
+            { filePath: w.normalizedPath, headings: chunk.headings }
+          );
         }
       });
       embeddingsSucceeded = true;
@@ -154,7 +177,7 @@ export async function indexFiles(
 
     indexed = embeddingsSucceeded ? work.length : 0;
 
-    return { indexed, skipped, errors };
+    return { indexed, skipped, pruned, errors };
   } finally {
     db.close();
   }

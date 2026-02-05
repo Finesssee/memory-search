@@ -7,6 +7,7 @@ export interface Chunk {
   lineStart: number;
   lineEnd: number;
   header?: string;
+  headings?: string[];
 }
 
 export interface ChunkOptions {
@@ -73,12 +74,35 @@ export function chunkMarkdown(content: string, options: ChunkOptions | number = 
     return text.length / 3;
   };
 
+  const extractHeadings = (headerLine: string, bodyText: string): string[] => {
+    const headings: string[] = [];
+    const addHeading = (text: string) => {
+      const clean = text.replace(/^#+\s*/, '').trim();
+      if (clean.length === 0) return;
+      if (!headings.includes(clean)) headings.push(clean);
+    };
+
+    if (headerLine) {
+      addHeading(headerLine);
+    }
+
+    const lines = bodyText.split('\n');
+    for (const line of lines) {
+      if (/^#{1,6}\s+/.test(line)) {
+        addHeading(line);
+      }
+    }
+
+    return headings;
+  };
+
   const flushChunk = (endLine: number, keepOverlap = true) => {
     if (currentChunk.length > 0) {
       const text = currentChunk.join('\n').trim();
       if (text.length > 50) {
         // Minimum 50 chars
         let finalContent = currentHeader ? `${currentHeader}\n\n${text}` : text;
+        const headings = extractHeadings(currentHeader, text);
 
         // Add metadata prefix
         if (metadataPrefix) {
@@ -90,6 +114,7 @@ export function chunkMarkdown(content: string, options: ChunkOptions | number = 
           lineStart: chunkStartLine,
           lineEnd: endLine,
           header: currentHeader || undefined,
+          headings: headings.length > 0 ? headings : undefined,
         });
       }
 

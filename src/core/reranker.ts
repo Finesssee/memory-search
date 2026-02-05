@@ -172,6 +172,11 @@ export async function rerankResults(
     const { rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest } = original;
     return {
       ...rest,
+      explain: {
+        ...original.explain,
+        rerankerScore,
+        rerankerWeights: weights,
+      },
       score: blendedScore,
     };
   });

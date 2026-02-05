@@ -10,16 +10,22 @@ import type { Config, SearchResult } from '../types.js';
 
 const RRF_K = 60; // RRF constant (commonly 60)
 const ORIGINAL_WEIGHT = 4.0;
+const ORIGINAL_BM25_WEIGHT = 0.6;
+const ORIGINAL_SEM_WEIGHT = 0.4;
 const LEX_WEIGHT = 0.5;
 const VEC_WEIGHT = 0.5;
 const HYDE_WEIGHT = 0.25;
+const VSS_EXPAND_FACTOR = 4;
 
 interface RankedItem {
   chunkId: number;
-  semanticRank?: number;
-  keywordRank?: number;
+  totalScore: number;
   rrfScore: number;
   rrfRank?: number;
+  bm25Rank?: number;
+  bm25Score?: number;
+  semanticScore?: number;
+  blendWeights?: { bm25: number; semantic: number };
 }
 
 export async function search(
@@ -81,55 +87,108 @@ export async function search(
 
     const allResults = await Promise.all(searchPromises);
 
-    // Build weighted RRF ranking across all query variations
+    // Build weighted RRF ranking for expanded queries
     const chunkScores = new Map<number, RankedItem>();
+    let originalSemanticResults: { chunkId: number; score: number }[] = [];
+    let originalKeywordResults: { chunkId: number; rank: number }[] = [];
 
     for (const { query: q, semanticResults, keywordResults } of allResults) {
-      // Add semantic results with weighted scores
-      semanticResults.forEach((result, index) => {
-        const contribution = q.weight / (RRF_K + index);
-        const existing = chunkScores.get(result.chunkId);
-        if (existing) {
-          existing.rrfScore += contribution;
-        } else {
-          chunkScores.set(result.chunkId, {
-            chunkId: result.chunkId,
-            rrfScore: contribution,
-          });
-        }
+      if (q.type === 'original') {
+        originalSemanticResults = semanticResults;
+        originalKeywordResults = keywordResults;
+      } else {
+        // Add semantic results with weighted scores for expanded queries
+        semanticResults.forEach((result, index) => {
+          const contribution = q.weight / (RRF_K + index);
+          const existing = chunkScores.get(result.chunkId);
+          if (existing) {
+            existing.rrfScore += contribution;
+            existing.totalScore += contribution;
+          } else {
+            chunkScores.set(result.chunkId, {
+              chunkId: result.chunkId,
+              totalScore: contribution,
+              rrfScore: contribution,
+            });
+          }
+        });
 
-        // Track best semantic rank for original query
-        if (q.type === 'original') {
+        // Add keyword results with weighted scores for expanded queries
+        keywordResults.forEach((result, index) => {
+          const contribution = q.weight / (RRF_K + index);
+          const existing = chunkScores.get(result.chunkId);
+          if (existing) {
+            existing.rrfScore += contribution;
+            existing.totalScore += contribution;
+          } else {
+            chunkScores.set(result.chunkId, {
+              chunkId: result.chunkId,
+              totalScore: contribution,
+              rrfScore: contribution,
+            });
+          }
+        });
+      }
+
+      // Track best semantic rank for original query
+      if (q.type === 'original') {
+        semanticResults.forEach((result, index) => {
           const bestRanks = chunkBestRanks.get(result.chunkId) || {};
           if (bestRanks.semanticRank === undefined || index < bestRanks.semanticRank) {
             bestRanks.semanticRank = index;
           }
           chunkBestRanks.set(result.chunkId, bestRanks);
-        }
-      });
-
-      // Add keyword results with weighted scores
-      keywordResults.forEach((result, index) => {
-        const contribution = q.weight / (RRF_K + index);
-        const existing = chunkScores.get(result.chunkId);
-        if (existing) {
-          existing.rrfScore += contribution;
-        } else {
-          chunkScores.set(result.chunkId, {
-            chunkId: result.chunkId,
-            rrfScore: contribution,
-          });
-        }
+        });
 
         // Track best keyword rank for original query
-        if (q.type === 'original') {
+        keywordResults.forEach((result, index) => {
           const bestRanks = chunkBestRanks.get(result.chunkId) || {};
           if (bestRanks.keywordRank === undefined || index < bestRanks.keywordRank) {
             bestRanks.keywordRank = index;
           }
           chunkBestRanks.set(result.chunkId, bestRanks);
-        }
-      });
+        });
+      }
+    }
+
+    // Score-aware fusion for original query (bm25 + semantic)
+    const bm25Norm = normalizeScoreMap(
+      originalKeywordResults.map(r => ({ chunkId: r.chunkId, value: r.rank })),
+      false
+    );
+    const semanticNorm = normalizeScoreMap(
+      originalSemanticResults.map(r => ({ chunkId: r.chunkId, value: r.score })),
+      true
+    );
+    const bm25RankMap = new Map(originalKeywordResults.map((r, i) => [r.chunkId, i + 1]));
+
+    const originalChunkIds = new Set<number>([
+      ...bm25Norm.keys(),
+      ...semanticNorm.keys(),
+    ]);
+
+    for (const chunkId of originalChunkIds) {
+      const bm25Score = bm25Norm.get(chunkId) ?? 0;
+      const semanticScore = semanticNorm.get(chunkId) ?? 0;
+      const blended = bm25Score * ORIGINAL_BM25_WEIGHT + semanticScore * ORIGINAL_SEM_WEIGHT;
+      const contribution = blended * ORIGINAL_WEIGHT;
+
+      const existing = chunkScores.get(chunkId);
+      if (existing) {
+        existing.totalScore += contribution;
+      } else {
+        chunkScores.set(chunkId, {
+          chunkId,
+          totalScore: contribution,
+          rrfScore: 0,
+        });
+      }
+
+      const target = chunkScores.get(chunkId)!;
+      target.bm25Rank = bm25RankMap.get(chunkId);
+      target.bm25Score = bm25Score;
+      target.semanticScore = semanticScore;
+      target.blendWeights = { bm25: ORIGINAL_BM25_WEIGHT, semantic: ORIGINAL_SEM_WEIGHT };
     }
 
     // Apply top-rank bonus based on original query performance
@@ -141,16 +200,25 @@ export async function search(
           bestRanks.keywordRank ?? Infinity
         );
         if (bestRank === 0) {
-          item.rrfScore += 0.05; // Top result bonus
+          item.totalScore += 0.05; // Top result bonus
         } else if (bestRank <= 2) {
-          item.rrfScore += 0.02; // Top-3 bonus
+          item.totalScore += 0.02; // Top-3 bonus
         }
       }
     }
 
-    // Sort by RRF score (higher is better) and assign ranks
+    // Normalize retrieval scores to [0, 1] for blending
+    const normalizedScores = normalizeScoreMap(
+      Array.from(chunkScores.values()).map(item => ({ chunkId: item.chunkId, value: item.totalScore })),
+      true
+    );
+    for (const item of chunkScores.values()) {
+      item.totalScore = normalizedScores.get(item.chunkId) ?? 0;
+    }
+
+    // Sort by retrieval score (higher is better) and assign ranks
     const rankedChunks = Array.from(chunkScores.values())
-      .sort((a, b) => b.rrfScore - a.rrfScore)
+      .sort((a, b) => b.totalScore - a.totalScore)
       .slice(0, config.searchTopK);
 
     // Assign RRF ranks for position-aware blending
@@ -173,7 +241,7 @@ export async function search(
 
         return {
           file: chunk.filePath,
-          score: ranked.rrfScore, // Keep in 0..1 range for blending/output
+          score: ranked.totalScore, // Normalized 0..1 for blending/output
           lineStart: chunk.lineStart,
           lineEnd: chunk.lineEnd,
           snippet: truncateSnippet(chunk.content, 300),
@@ -182,6 +250,14 @@ export async function search(
           fullContent: chunk.content,
           chunkId: chunk.id,
           contentHash: chunk.contentHash,
+          explain: {
+            rrfScore: ranked.rrfScore,
+            rrfRank: rrfRankMap.get(ranked.chunkId),
+            bm25Rank: ranked.bm25Rank,
+            bm25Score: ranked.bm25Score,
+            semanticScore: ranked.semanticScore,
+            blendWeights: ranked.blendWeights,
+          },
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
@@ -213,30 +289,14 @@ async function semanticSearch(
 
   // Try VSS search first if available
   if (db.isVssEnabled()) {
-    const vssResults = db.searchVss(queryEmbedding, topK);
+    const vssLimit = Math.min(topK * VSS_EXPAND_FACTOR, candidateCap);
+    const vssResults = db.searchVss(queryEmbedding, vssLimit);
     if (vssResults.length > 0) {
       // Convert distance to similarity score (lower distance = higher score)
       const seeded = vssResults.map(({ chunkId, distance }) => ({
         chunkId,
         score: 1 / (1 + distance), // Convert distance to similarity
       }));
-      if (seeded.length >= topK) {
-        return seeded;
-      }
-
-      // Fill remaining slots with linear scan results
-      const chunks = db.getAllChunks();
-      if (chunks.length === 0) return seeded;
-
-      const fallbackResults = findTopK(queryEmbedding, chunks, topK);
-      const seen = new Set(seeded.map(r => r.chunkId));
-
-      for (const { item, score } of fallbackResults) {
-        if (seen.has(item.id)) continue;
-        seeded.push({ chunkId: item.id, score });
-        if (seeded.length >= topK) break;
-      }
-
       return seeded;
     }
   }
@@ -273,4 +333,40 @@ function truncateSnippet(content: string, maxLength: number): string {
     return content;
   }
   return content.slice(0, maxLength).trim() + '...';
+}
+
+function normalizeScoreMap(
+  items: Array<{ chunkId: number; value: number }>,
+  higherBetter: boolean
+): Map<number, number> {
+  const map = new Map<number, number>();
+  if (items.length === 0) return map;
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const item of items) {
+    if (!Number.isFinite(item.value)) continue;
+    if (item.value < min) min = item.value;
+    if (item.value > max) max = item.value;
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return map;
+  }
+
+  const range = max - min;
+  for (const item of items) {
+    let normalized = 0;
+    if (range === 0) {
+      normalized = 1;
+    } else if (higherBetter) {
+      normalized = (item.value - min) / range;
+    } else {
+      normalized = (max - item.value) / range;
+    }
+    if (!Number.isFinite(normalized)) normalized = 0;
+    map.set(item.chunkId, Math.max(0, Math.min(1, normalized)));
+  }
+
+  return map;
 }
