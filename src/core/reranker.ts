@@ -31,6 +31,13 @@ function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function isTrivialQuery(query: string): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return true;
+  if (trimmed.length < 3) return true;
+  return false;
+}
+
 // Reranker scores can be:
 // - Already normalized [0, 1] → keep as-is
 // - Cosine similarity [-1, 1] → linear scale to [0, 1]
@@ -87,6 +94,9 @@ export async function rerankResults(
     return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
   }
   if (results.length === 0) return results;
+  if (isTrivialQuery(query)) {
+    return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
+  }
 
   const cache = new RerankCache(config);
   const model = 'multi-v4'; // Cache key for combined multi-model score (fixed normalization + conservative weights)
