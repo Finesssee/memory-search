@@ -16,6 +16,7 @@ const DEFAULT_CONFIG: Config = {
   chunkMaxTokens: 1000,
   chunkOverlapTokens: 150,
   searchTopK: 15,
+  searchCandidateCap: 200,
 };
 
 export function ensureConfigDir(): void {

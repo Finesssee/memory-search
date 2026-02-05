@@ -175,7 +175,13 @@ export class MemoryDB {
   }
 
   deleteFile(path: string): void {
-    this.db.prepare('DELETE FROM files WHERE path = ?').run(path);
+    const existing = this.getFile(path);
+    if (!existing) return;
+
+    this.withTransaction(() => {
+      this.deleteChunksForFile(existing.id);
+      this.db.prepare('DELETE FROM files WHERE path = ?').run(path);
+    });
   }
 
   insertChunk(
@@ -188,7 +194,7 @@ export class MemoryDB {
     observation?: Observation,
     sessionId?: string
   ): void {
-    const embeddingBuffer = Buffer.from(embedding.buffer);
+    const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const contentHash = hashContent(content);
 
     // Prepare observation metadata
@@ -502,7 +508,7 @@ export class MemoryDB {
     }
 
     try {
-      const embeddingBuffer = Buffer.from(queryEmbedding.buffer);
+      const embeddingBuffer = Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
       const rows = this.db.prepare(`
         SELECT rowid, distance
         FROM chunks_vss

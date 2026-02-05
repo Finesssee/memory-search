@@ -122,6 +122,7 @@ export async function indexFiles(
     console.log(`Embedding ${allChunks.length} chunks...`);
     const allTexts = allChunks.map(c => prefixDocument(c.content));
 
+    let embeddingsSucceeded = false;
     try {
       const embeddings = await getEmbeddingsParallel(allTexts, config, (completed, total) => {
         process.stdout.write(`\r  Batch ${completed}/${total}`);
@@ -145,12 +146,13 @@ export async function indexFiles(
           db.insertChunk(fileId, chunkIdx, chunk.content, chunk.lineStart, chunk.lineEnd, embeddings[i]);
         }
       });
+      embeddingsSucceeded = true;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`Embedding error: ${message}`);
     }
 
-    indexed = work.length - errors.filter((e) => work.some((w) => e.startsWith(w.normalizedPath))).length;
+    indexed = embeddingsSucceeded ? work.length : 0;
 
     return { indexed, skipped, errors };
   } finally {

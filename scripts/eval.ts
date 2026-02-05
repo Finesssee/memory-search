@@ -166,7 +166,8 @@ function formatTable(rows: string[][]): string {
 
 async function runSearch(query: string, k: number, config: EvalConfig): Promise<CliResponse> {
   // Quote the query to handle multi-word searches
-  const args = ['dev', 'search', `"${query}"`, '--format', 'json', '--limit', String(k)];
+  const safeQuery = query.replace(/"/g, '\\"');
+  const args = ['dev', 'search', `"${safeQuery}"`, '--format', 'json', '--limit', String(k)];
   if (config.expand) args.push('--expand');
 
   const env = { ...process.env };

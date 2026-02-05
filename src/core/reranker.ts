@@ -123,7 +123,7 @@ export async function rerankResults(
       // Fall back to original order if reranking fails
       console.error(`Rerank failed: ${response.status}`);
       cache.close();
-      return results.map(({ rrfRank, ...rest }) => rest);
+      return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
     }
 
     const body = (await response.json()) as unknown;

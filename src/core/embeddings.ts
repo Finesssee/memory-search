@@ -116,7 +116,7 @@ export async function checkEmbeddingServer(config: Config): Promise<boolean> {
     const response = await fetchWithRetry(config.embeddingEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: 'test' }),
+      body: JSON.stringify({ content: ['test'] }),
     });
     if (!response.ok) return false;
     const data = await response.json() as EmbeddingResponse[];

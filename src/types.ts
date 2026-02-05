@@ -9,6 +9,7 @@ export interface Config {
   chunkMaxTokens: number;
   chunkOverlapTokens: number;
   searchTopK: number;
+  searchCandidateCap?: number;
   expandQueries?: boolean;
   compressionEnabled?: boolean;
 }

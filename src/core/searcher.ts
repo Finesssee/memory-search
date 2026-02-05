@@ -27,6 +27,7 @@ export async function search(
   config: Config
 ): Promise<SearchResult[]> {
   const db = new MemoryDB(config);
+  const candidateCap = config.searchCandidateCap ?? 200;
 
   try {
     // Build list of queries with weights and types
@@ -71,8 +72,8 @@ export async function search(
       const runKeyword = q.type === 'original' || q.type === 'lex';
 
       const [semanticResults, keywordResults] = await Promise.all([
-        runSemantic ? semanticSearch(q.text, config, db) : Promise.resolve([]),
-        runKeyword ? keywordSearch(q.text, db) : Promise.resolve([]),
+        runSemantic ? semanticSearch(q.text, config, db, candidateCap) : Promise.resolve([]),
+        runKeyword ? keywordSearch(q.text, db, candidateCap) : Promise.resolve([]),
       ]);
 
       return { query: q, semanticResults, keywordResults };
@@ -201,23 +202,42 @@ export async function search(
 async function semanticSearch(
   query: string,
   config: Config,
-  db: MemoryDB
+  db: MemoryDB,
+  candidateCap: number
 ): Promise<{ chunkId: number; score: number }[]> {
   // Get query embedding with Nomic prefix
   const prefixedQuery = prefixQuery(query);
   const queryEmbedding = await getEmbedding(prefixedQuery, config);
 
-  const topK = Math.min(config.searchTopK * 3, 50);
+  const topK = Math.min(config.searchTopK * 5, candidateCap);
 
   // Try VSS search first if available
   if (db.isVssEnabled()) {
     const vssResults = db.searchVss(queryEmbedding, topK);
     if (vssResults.length > 0) {
       // Convert distance to similarity score (lower distance = higher score)
-      return vssResults.map(({ chunkId, distance }) => ({
+      const seeded = vssResults.map(({ chunkId, distance }) => ({
         chunkId,
         score: 1 / (1 + distance), // Convert distance to similarity
       }));
+      if (seeded.length >= topK) {
+        return seeded;
+      }
+
+      // Fill remaining slots with linear scan results
+      const chunks = db.getAllChunks();
+      if (chunks.length === 0) return seeded;
+
+      const fallbackResults = findTopK(queryEmbedding, chunks, topK);
+      const seen = new Set(seeded.map(r => r.chunkId));
+
+      for (const { item, score } of fallbackResults) {
+        if (seen.has(item.id)) continue;
+        seeded.push({ chunkId: item.id, score });
+        if (seeded.length >= topK) break;
+      }
+
+      return seeded;
     }
   }
 
@@ -242,9 +262,10 @@ async function semanticSearch(
  */
 function keywordSearch(
   query: string,
-  db: MemoryDB
+  db: MemoryDB,
+  candidateCap: number
 ): { chunkId: number; rank: number }[] {
-  return db.searchFTS(query, 50);
+  return db.searchFTS(query, candidateCap);
 }
 
 function truncateSnippet(content: string, maxLength: number): string {
