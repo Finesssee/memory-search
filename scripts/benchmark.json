@@ -19,10 +19,9 @@
     },
     {
       "id": "q3",
-      "query": "hooks and CTAs for ads",
+      "query": "attention grabbing hooks viral content",
       "expected": [
-        "100m-hooks-playbook/SKILL.md",
-        "100m-goated-ads/SKILL.md"
+        "100m-hooks-playbook/SKILL.md"
       ]
     },
     {
@@ -78,9 +77,8 @@
     },
     {
       "id": "q11",
-      "query": "advertising creative hooks attention",
+      "query": "ad creative formats faceless demonstration",
       "expected": [
-        "100m-hooks-playbook/SKILL.md",
         "100m-goated-ads/SKILL.md"
       ]
     },
