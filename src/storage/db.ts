@@ -107,6 +107,7 @@ export class MemoryDB {
     } catch {
       // Column already exists
     }
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_session ON chunks(session_id)');
 
     // Add content_hash column to chunks
     try {
@@ -298,25 +299,26 @@ export class MemoryDB {
   deleteChunksForFile(fileId: number): void {
     // First get chunk IDs to delete from FTS and VSS
     const chunkIds = this.db.prepare('SELECT id FROM chunks WHERE file_id = ?').all(fileId) as { id: number }[];
+    const ids = chunkIds.map(({ id }) => id);
 
     // Delete from VSS index if enabled
-    if (this.vssEnabled) {
+    if (this.vssEnabled && ids.length > 0) {
       try {
-        for (const { id } of chunkIds) {
-          this.db.prepare('DELETE FROM chunks_vss WHERE rowid = ?').run(id);
-        }
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM chunks_vss WHERE rowid IN (${placeholders})`).run(...ids);
       } catch {
         // VSS might not be available
       }
     }
 
     // Delete from FTS5
-    try {
-      for (const { id } of chunkIds) {
-        this.db.prepare('DELETE FROM chunks_fts WHERE rowid = ?').run(id);
+    if (ids.length > 0) {
+      try {
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(`DELETE FROM chunks_fts WHERE rowid IN (${placeholders})`).run(...ids);
+      } catch {
+        // FTS5 might not be available
       }
-    } catch {
-      // FTS5 might not be available
     }
 
     // Delete from chunks table

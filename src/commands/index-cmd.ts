@@ -18,8 +18,10 @@ export function registerIndexCommand(program: Command): void {
       // Check if embedding server is running
       const serverOk = await checkEmbeddingServer(config);
       if (!serverOk) {
-        console.error(chalk.red('Error: Embedding server not running'));
-        console.error(chalk.yellow('Start it with: pm2 start embed-server'));
+        console.error(chalk.red(`Error: Cannot connect to embedding server at ${config.embeddingEndpoint}`));
+        console.error(chalk.yellow(''));
+        console.error(chalk.yellow('Make sure your embedding server is running and accessible.'));
+        console.error(chalk.yellow('Check your config at ~/.memory-search/config.json'));
         process.exit(1);
       }
 

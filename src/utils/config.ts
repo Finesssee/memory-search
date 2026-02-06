@@ -9,7 +9,7 @@ const CONFIG_DIR = join(homedir(), '.memory-search');
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
 
 const DEFAULT_CONFIG: Config = {
-  sources: ['D:\\Obsidian\\dataset\\clawd\\memory'],
+  sources: [],
   indexPath: join(CONFIG_DIR, 'index.db'),
   embeddingEndpoint: 'http://localhost:8080/embedding',
   embeddingDimensions: 768,

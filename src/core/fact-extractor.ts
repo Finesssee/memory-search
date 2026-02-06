@@ -144,7 +144,7 @@ async function extractWithLLM(
   namespace: string,
   config: Config
 ): Promise<ExtractedFact[]> {
-  const chatEndpoint = config.embeddingEndpoint.replace('/embedding', '/chat');
+  const chatEndpoint = `${config.embeddingEndpoint.replace(/\/$/, '')}/../chat`;
 
   const prompt = `Extract factual key-value pairs from this text. Focus on personal preferences, settings, and configurations.
 Return a JSON array of objects with "key" and "value" fields. Only include clear, factual statements.
