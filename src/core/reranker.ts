@@ -52,13 +52,115 @@ function normalizeRerankerScore(score: number): number {
   return clamp01(1 / (1 + Math.exp(-score)));
 }
 
-function averageNormalizedScores(scores: Record<string, unknown> | undefined): number | null {
+function parseRerankerWeights(rawValue: string | undefined): { bge: number; qwen: number; gemma: number } {
+  const defaults = { bge: 0.5, qwen: 0.3, gemma: 0.2 };
+  if (!rawValue || rawValue.trim().length === 0) return defaults;
+
+  const parsed: Partial<Record<'bge' | 'qwen' | 'gemma', number>> = {};
+
+  const trimmed = rawValue.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const json = JSON.parse(trimmed) as Record<string, unknown>;
+      for (const key of ['bge', 'qwen', 'gemma'] as const) {
+        const value = json[key];
+        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+          parsed[key] = value;
+        }
+      }
+    } catch {
+      return defaults;
+    }
+  } else {
+    const pairs = trimmed
+      .split(',')
+      .map(part => part.trim())
+      .filter(Boolean);
+    for (const pair of pairs) {
+      const [rawKey, rawNumber] = pair.includes('=')
+        ? pair.split('=')
+        : pair.includes(':')
+          ? pair.split(':')
+          : [];
+      if (!rawKey || !rawNumber) continue;
+      const key = rawKey.trim().toLowerCase();
+      if (key !== 'bge' && key !== 'qwen' && key !== 'gemma') continue;
+      const value = Number.parseFloat(rawNumber.trim());
+      if (!Number.isFinite(value) || value < 0) continue;
+      parsed[key] = value;
+    }
+  }
+
+  const bge = parsed.bge ?? defaults.bge;
+  const qwen = parsed.qwen ?? defaults.qwen;
+  const gemma = parsed.gemma ?? defaults.gemma;
+  const sum = bge + qwen + gemma;
+  if (!Number.isFinite(sum) || sum <= 0) return defaults;
+
+  return {
+    bge: bge / sum,
+    qwen: qwen / sum,
+    gemma: gemma / sum,
+  };
+}
+
+function blendNormalizedScores(
+  scores: Record<string, unknown> | undefined,
+  weights: { bge: number; qwen: number; gemma: number }
+): number | null {
   if (!scores) return null;
-  const values = Object.values(scores).filter((value): value is number => typeof value === 'number');
-  if (values.length === 0) return null;
-  const normalized = values.map(normalizeRerankerScore);
-  const avg = normalized.reduce((sum, value) => sum + value, 0) / normalized.length;
-  return clamp01(avg);
+
+  const bge = typeof scores.bge === 'number' ? normalizeRerankerScore(scores.bge) : null;
+  const qwen = typeof scores.qwen === 'number' ? normalizeRerankerScore(scores.qwen) : null;
+  const gemma = typeof scores.gemma === 'number' ? normalizeRerankerScore(scores.gemma) : null;
+
+  let weightedSum = 0;
+  let weightSum = 0;
+  if (bge !== null) {
+    weightedSum += bge * weights.bge;
+    weightSum += weights.bge;
+  }
+  if (qwen !== null) {
+    weightedSum += qwen * weights.qwen;
+    weightSum += weights.qwen;
+  }
+  if (gemma !== null) {
+    weightedSum += gemma * weights.gemma;
+    weightSum += weights.gemma;
+  }
+
+  if (weightSum <= 0) return null;
+  return clamp01(weightedSum / weightSum);
+}
+
+function minMaxNormalizeScores(scoresByIndex: Map<number, number>): Map<number, number> {
+  const normalized = new Map<number, number>();
+  if (scoresByIndex.size === 0) return normalized;
+
+  let min = Infinity;
+  let max = -Infinity;
+  for (const score of scoresByIndex.values()) {
+    if (!Number.isFinite(score)) continue;
+    if (score < min) min = score;
+    if (score > max) max = score;
+  }
+
+  if (!Number.isFinite(min) || !Number.isFinite(max)) {
+    return normalized;
+  }
+
+  const range = max - min;
+  for (const [index, score] of scoresByIndex.entries()) {
+    let value = 0;
+    if (range === 0) {
+      value = 1;
+    } else {
+      value = (score - min) / range;
+    }
+    normalized.set(index, clamp01(value));
+  }
+
+  return normalized;
 }
 
 function extractRerankItems(body: unknown): RerankResponse[] {
@@ -99,7 +201,8 @@ export async function rerankResults(
   }
 
   const cache = new RerankCache(config);
-  const model = 'multi-v4'; // Cache key for combined multi-model score (fixed normalization + conservative weights)
+  const model = 'multi-v5'; // Cache key for weighted multi-model blend + per-query normalization
+  const modelWeights = parseRerankerWeights(process.env.RERANKER_WEIGHTS);
   const queryHash = hashContent(query);
 
   // Check cache for each document
@@ -159,8 +262,8 @@ export async function rerankResults(
       }
 
       const docKey = getDocKey(results[originalIndex]);
-      const averaged = averageNormalizedScores((r as unknown as { scores?: Record<string, unknown> }).scores);
-      const normalized = averaged ?? normalizeRerankerScore((r as unknown as { score?: number }).score ?? NaN);
+      const blended = blendNormalizedScores((r as unknown as { scores?: Record<string, unknown> }).scores, modelWeights);
+      const normalized = blended ?? normalizeRerankerScore((r as unknown as { score?: number }).score ?? NaN);
       cache.setScore(queryHash, docKey, model, normalized);
       newScores.set(originalIndex, normalized);
     }
@@ -168,9 +271,16 @@ export async function rerankResults(
 
   cache.close();
 
+  const rawRerankerScores = new Map<number, number>();
+  for (let index = 0; index < results.length; index++) {
+    rawRerankerScores.set(index, cachedScores.get(index) ?? newScores.get(index) ?? 0);
+  }
+  const normalizedRerankerScores = minMaxNormalizeScores(rawRerankerScores);
+
   // Combine cached and new scores, apply position-aware blending
   const blendedResults = results.map((original, index) => {
-    const rerankerScore = cachedScores.get(index) ?? newScores.get(index) ?? 0;
+    const rerankerRawScore = rawRerankerScores.get(index) ?? 0;
+    const rerankerScore = normalizedRerankerScores.get(index) ?? 0;
     const rrfRank = original.rrfRank ?? index + 1;
     const weights = getBlendWeights(rrfRank);
 
@@ -185,8 +295,10 @@ export async function rerankResults(
       chunkId: original.chunkId,
       explain: {
         ...original.explain,
+        rerankerRawScore,
         rerankerScore,
         rerankerWeights: weights,
+        rerankerModelWeights: modelWeights,
       },
       score: blendedScore,
     };

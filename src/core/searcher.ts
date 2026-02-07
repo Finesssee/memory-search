@@ -35,6 +35,7 @@ export async function search(
 ): Promise<SearchResult[]> {
   const db = new MemoryDB(config);
   const candidateCap = config.searchCandidateCap ?? 300;
+  const finalTopK = Math.max(1, config.searchTopK);
 
   try {
     // Build list of queries with weights and types
@@ -224,7 +225,7 @@ export async function search(
     // Sort by retrieval score (higher is better) and assign ranks
     const rankedChunks = Array.from(chunkScores.values())
       .sort((a, b) => b.totalScore - a.totalScore)
-      .slice(0, config.searchTopK);
+      .slice(0, finalTopK);
 
     // Assign RRF ranks for position-aware blending
     rankedChunks.forEach((item, index) => {
@@ -269,8 +270,7 @@ export async function search(
 
     // Rerank using multi-model ensemble (BGE + Gemma + Qwen)
     const reranked = await rerankResults(query, initialResults, config);
-
-    return reranked;
+    return reranked.slice(0, finalTopK);
   } finally {
     db.close();
   }
