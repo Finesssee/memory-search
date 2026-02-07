@@ -3,6 +3,7 @@
 import type { Config, EmbeddingResponse } from '../types.js';
 import { fetchWithRetry } from '../utils/network.js';
 import { LruCache } from '../utils/lru.js';
+import { MemoryDB } from '../storage/db.js';
 
 const BATCH_SIZE = 100;  // Cloudflare Workers AI can handle larger batches
 const PARALLEL_REQUESTS = 4;  // Fire multiple batches concurrently
@@ -28,15 +29,36 @@ export async function getEmbedding(
   text: string,
   config: Config
 ): Promise<Float32Array> {
-  // Check cache first
+  // Check in-memory LRU cache first
   const cached = queryEmbeddingCache.get(text);
   if (cached) return cached;
 
+  // Check persistent DB cache
+  const db = new MemoryDB(config);
+  try {
+    const dbCached = db.getCachedQueryEmbedding(text);
+    if (dbCached) {
+      queryEmbeddingCache.set(text, dbCached);
+      return dbCached;
+    }
+  } finally {
+    db.close();
+  }
+
+  // Fetch from embedding server
   const results = await getEmbeddingsBatch([text], config);
   const embedding = results[0];
 
-  // Cache the result
+  // Cache in memory
   queryEmbeddingCache.set(text, embedding);
+
+  // Persist to DB
+  const db2 = new MemoryDB(config);
+  try {
+    db2.setCachedQueryEmbedding(text, embedding);
+  } finally {
+    db2.close();
+  }
 
   return embedding;
 }

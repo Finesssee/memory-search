@@ -144,6 +144,19 @@ export class MemoryDB {
       // Column already exists
     }
 
+    // Persistent query embedding cache
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS query_embedding_cache (
+          query_text TEXT PRIMARY KEY,
+          embedding BLOB NOT NULL,
+          created_at INTEGER NOT NULL
+        )
+      `);
+    } catch {
+      // Table already exists
+    }
+
     // Enable foreign key support
     this.db.pragma('foreign_keys = ON');
 
@@ -771,6 +784,21 @@ export class MemoryDB {
     } catch {
       // VSS rebuild failed
     }
+  }
+
+  getCachedQueryEmbedding(queryText: string): Float32Array | null {
+    const row = this.db.prepare(
+      'SELECT embedding FROM query_embedding_cache WHERE query_text = ?'
+    ).get(queryText) as { embedding: Buffer } | undefined;
+    if (!row) return null;
+    return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
+  }
+
+  setCachedQueryEmbedding(queryText: string, embedding: Float32Array): void {
+    const buffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+    this.db.prepare(
+      'INSERT OR REPLACE INTO query_embedding_cache (query_text, embedding, created_at) VALUES (?, ?, ?)'
+    ).run(queryText, buffer, Date.now());
   }
 
   close(): void {
