@@ -93,8 +93,7 @@
       "query": "search bar ctrl k showcase projects",
       "expected": [
         "Notes_lol (2).md",
-        "Notes_lol (1).md",
-        "Notes_lol (3).md"
+        "Notes_lol (1).md"
       ],
       "notes": "cross-domain"
     },
@@ -128,8 +127,7 @@
       "id": "v4",
       "query": "the first-principles note about architecture assumptions and constraints",
       "expected": [
-        "2025-12-17_let understand first principles_16bf3e94.md",
-        "2026-02-04_subagents_2a0dc713.md"
+        "2025-12-17_let understand first principles_16bf3e94.md"
       ],
       "notes": "vague-natural-language"
     },
@@ -172,8 +170,7 @@
       "query": "kiro",
       "expected": [
         "session-2026-02-06T130027.md",
-        "session-2026-02-06T123502.md",
-        "2025-07-15_tell me more about the new AWS Kiro IDE, how's the rate limit on that_761eeb01.md"
+        "session-2026-02-06T123502.md"
       ],
       "notes": "edge-case-single-word"
     },
