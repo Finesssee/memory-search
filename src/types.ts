@@ -1,7 +1,13 @@
 // Types for memory-search CLI
 
+export interface Collection {
+  name: string;
+  paths: string[];
+}
+
 export interface Config {
-  sources: string[];
+  sources?: string[];
+  collections?: Collection[];
   ignorePaths?: string[];
   indexPath: string;
   embeddingEndpoint: string;
@@ -11,7 +17,12 @@ export interface Config {
   searchTopK: number;
   searchCandidateCap?: number;
   expandQueries?: boolean;
-  compressionEnabled?: boolean;
+  pathContexts?: PathContext[];
+}
+
+export interface PathContext {
+  path: string;
+  description: string;
 }
 
 export interface FileRecord {

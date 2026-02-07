@@ -7,6 +7,8 @@ import { registerStatusCommand } from './status.js';
 import { registerFactsCommand } from './facts.js';
 import { registerContextCommand } from './context.js';
 import { registerSessionsCommand } from './sessions.js';
+import { registerCollectionCommand } from './collection.js';
+import { registerGetCommand } from './get.js';
 
 export function registerCommands(program: Command): void {
   registerSearchCommand(program);
@@ -15,4 +17,6 @@ export function registerCommands(program: Command): void {
   registerFactsCommand(program);
   registerContextCommand(program);
   registerSessionsCommand(program);
+  registerCollectionCommand(program);
+  registerGetCommand(program);
 }

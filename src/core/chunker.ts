@@ -116,6 +116,7 @@ export function chunkMarkdown(content: string, options: ChunkOptions | number = 
           header: currentHeader || undefined,
           headings: headings.length > 0 ? headings : undefined,
         });
+        // }
       }
 
       // Keep overlap for next chunk

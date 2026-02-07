@@ -124,7 +124,8 @@ Answer:`;
  */
 export async function expandQueryStructured(
   query: string,
-  config: Config
+  config: Config,
+  contextHints: string[] = []
 ): Promise<ExpandedQueries> {
   // Short or empty queries are not good candidates for expansion
   if (normalizeTerms(query).length < 2) {
@@ -136,15 +137,21 @@ export async function expandQueryStructured(
     };
   }
 
-  // Check cache first
-  const cached = expansionCache.get(query);
+  // Check cache first (include hints in key if present)
+  const cacheKey = contextHints.length > 0 ? `${query}|${contextHints.join('|')}` : query;
+  const cached = expansionCache.get(cacheKey);
   if (cached) return cached;
 
   const baseEndpoint = config.embeddingEndpoint.replace(/\/$/, '');
   const chatEndpoint = baseEndpoint + '/chat';
 
-  const prompt = `Given this search query, generate optimized variations.
+  let contextBlock = '';
+  if (contextHints.length > 0) {
+    contextBlock = `\nContext Information:\n${contextHints.map(h => `- ${h}`).join('\n')}\n`;
+  }
 
+  const prompt = `Given this search query${contextHints.length > 0 ? ' and context' : ''}, generate optimized variations.
+${contextBlock}
 Query: "${query}"
 
 Respond in this exact JSON format:
@@ -192,7 +199,7 @@ JSON only, no markdown:`;
           const filteredVec = filterDriftedQueries(query, rawVec);
           const hydeCandidate = rawHyde.trim().replace(/\s+/g, ' ');
           const hyde =
-            hydeCandidate.length >= 20 && hydeCandidate.length <= 500 && !hasDrift(query, hydeCandidate)
+            hydeCandidate.length >= 20 && hydeCandidate.length <= 500
               ? hydeCandidate
               : '';
 
@@ -204,7 +211,7 @@ JSON only, no markdown:`;
           };
 
           // Cache the result
-          expansionCache.set(query, result);
+          expansionCache.set(cacheKey, result);
 
           return result;
         }
@@ -218,7 +225,7 @@ JSON only, no markdown:`;
   const rawHyde = await generateHyDE(query, config);
   const hydeCandidate = rawHyde.trim().replace(/\s+/g, ' ');
   const hyde =
-    hydeCandidate.length >= 20 && hydeCandidate.length <= 500 && !hasDrift(query, hydeCandidate)
+    hydeCandidate.length >= 20 && hydeCandidate.length <= 500
       ? hydeCandidate
       : '';
 
@@ -230,7 +237,7 @@ JSON only, no markdown:`;
   };
 
   // Cache the fallback result too
-  expansionCache.set(query, result);
+  expansionCache.set(cacheKey, result);
 
   return result;
 }

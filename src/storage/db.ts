@@ -101,6 +101,34 @@ export class MemoryDB {
       // Table already exists
     }
 
+    // Create collections table for collection management
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS collections (
+          id INTEGER PRIMARY KEY,
+          name TEXT UNIQUE NOT NULL,
+          created_at INTEGER NOT NULL
+        )
+      `);
+    } catch {
+      // Table already exists
+    }
+
+    // Create file_collections mapping table
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS file_collections (
+          file_id INTEGER NOT NULL,
+          collection_id INTEGER NOT NULL,
+          PRIMARY KEY (file_id, collection_id),
+          FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+          FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+        )
+      `);
+    } catch {
+      // Table already exists
+    }
+
     // Add session_id column to chunks
     try {
       this.db.exec('ALTER TABLE chunks ADD COLUMN session_id TEXT');
@@ -233,6 +261,53 @@ export class MemoryDB {
 
     const row = this.db.prepare('SELECT id FROM files WHERE path = ?').get(path) as { id: number };
     return row.id;
+  }
+
+  upsertCollection(name: string): number {
+    const now = Date.now();
+    this.db.prepare(`
+      INSERT INTO collections (name, created_at)
+      VALUES (?, ?)
+      ON CONFLICT(name) DO NOTHING
+    `).run(name, now);
+
+    const row = this.db.prepare('SELECT id FROM collections WHERE name = ?').get(name) as { id: number };
+    return row.id;
+  }
+
+  addFileToCollection(fileId: number, collectionId: number): void {
+    this.db.prepare(`
+      INSERT OR IGNORE INTO file_collections (file_id, collection_id)
+      VALUES (?, ?)
+    `).run(fileId, collectionId);
+  }
+
+  clearFileCollections(fileId: number): void {
+    this.db.prepare('DELETE FROM file_collections WHERE file_id = ?').run(fileId);
+  }
+
+  getFilesByCollection(collectionName: string): FileRecord[] {
+    const rows = this.db.prepare(`
+      SELECT f.*
+      FROM files f
+      JOIN file_collections fc ON f.id = fc.file_id
+      JOIN collections c ON fc.collection_id = c.id
+      WHERE c.name = ?
+    `).all(collectionName) as Array<{
+      id: number;
+      path: string;
+      mtime: number;
+      content_hash: string;
+      indexed_at: number;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      path: row.path,
+      mtime: row.mtime,
+      contentHash: row.content_hash,
+      indexedAt: row.indexed_at,
+    }));
   }
 
   deleteFile(path: string): void {
@@ -401,6 +476,75 @@ export class MemoryDB {
     }));
   }
 
+  getChunkById(id: number): (ChunkRecord & { filePath: string }) | undefined {
+    const row = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE c.id = ?
+    `).get(id) as {
+      id: number;
+      file_id: number;
+      chunk_index: number;
+      content: string;
+      line_start: number;
+      line_end: number;
+      embedding: Buffer;
+      file_path: string;
+      content_hash: string | null;
+    } | undefined;
+
+    if (!row) return undefined;
+
+    return {
+      id: row.id,
+      fileId: row.file_id,
+      chunkIndex: row.chunk_index,
+      content: row.content,
+      lineStart: row.line_start,
+      lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path,
+      contentHash: row.content_hash ?? hashContent(row.content),
+    };
+  }
+
+  getSurroundingChunks(chunkId: number, range = 2): (ChunkRecord & { filePath: string })[] {
+    const centerChunk = this.getChunkById(chunkId);
+    if (!centerChunk) return [];
+
+    const rows = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE c.file_id = ?
+      AND c.chunk_index BETWEEN ? AND ?
+      ORDER BY c.chunk_index
+    `).all(centerChunk.fileId, centerChunk.chunkIndex - range, centerChunk.chunkIndex + range) as Array<{
+      id: number;
+      file_id: number;
+      chunk_index: number;
+      content: string;
+      line_start: number;
+      line_end: number;
+      embedding: Buffer;
+      file_path: string;
+      content_hash: string | null;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id,
+      fileId: row.file_id,
+      chunkIndex: row.chunk_index,
+      content: row.content,
+      lineStart: row.line_start,
+      lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path,
+      contentHash: row.content_hash ?? hashContent(row.content),
+    }));
+  }
+
   /**
    * Rebuild FTS index from chunks table
    */
@@ -530,10 +674,6 @@ export class MemoryDB {
       summary: row.summary ?? undefined,
       captureCount: row.capture_count,
     }));
-  }
-
-  updateSessionSummary(id: string, summary: string): void {
-    this.db.prepare('UPDATE sessions SET summary = ? WHERE id = ?').run(summary, id);
   }
 
   incrementSessionCaptureCount(id: string): void {

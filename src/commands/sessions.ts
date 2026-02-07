@@ -66,9 +66,6 @@ export function registerSessionsCommand(program: Command): void {
         console.log(chalk.blue(`\nSession: ${session.id}\n`));
         console.log(chalk.gray('Started: ') + new Date(session.startedAt).toLocaleString());
         console.log(chalk.gray('Project: ') + (session.projectPath || 'N/A'));
-        if (session.summary) {
-          console.log(chalk.gray('Summary: ') + session.summary);
-        }
         console.log();
 
         // Get chunks for this session

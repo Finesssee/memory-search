@@ -28,18 +28,54 @@ export async function indexFiles(
   let pruned = 0;
 
   try {
-    // Find all markdown files in sources
-    const files: string[] = [];
-    const ignorePatterns = config.ignorePaths || [];
+    // Normalize config to collections
+    interface NormalizedCollection {
+      name: string;
+      paths: string[];
+    }
+    const collections: NormalizedCollection[] = [];
 
-    for (const source of config.sources) {
-      const pattern = source.replace(/\\/g, '/') + '/**/*.md';
-      const matches = await glob(pattern, {
-        ignore: ignorePatterns.map(p => `**/${p}/**`)
+    // Migrate sources to default collection if needed
+    if (config.sources && config.sources.length > 0) {
+      collections.push({
+        name: 'default',
+        paths: config.sources
       });
-      files.push(...matches);
     }
 
+    // Add configured collections
+    if (config.collections) {
+      collections.push(...config.collections);
+    }
+
+    // Ensure we have something to index
+    if (collections.length === 0) {
+      return { indexed: 0, skipped: 0, pruned: 0, errors: [] };
+    }
+
+    // Find all markdown files in all collections
+    // Map file path to list of collection names it belongs to
+    const fileCollections = new Map<string, Set<string>>();
+    const ignorePatterns = config.ignorePaths || [];
+
+    for (const collection of collections) {
+      for (const source of collection.paths) {
+        const pattern = source.replace(/\\/g, '/') + '/**/*.md';
+        const matches = await glob(pattern, {
+          ignore: ignorePatterns.map(p => `**/${p}/**`)
+        });
+
+        for (const match of matches) {
+          const normalized = match.replace(/\//g, '\\');
+          if (!fileCollections.has(normalized)) {
+            fileCollections.set(normalized, new Set());
+          }
+          fileCollections.get(normalized)?.add(collection.name);
+        }
+      }
+    }
+
+    const files = Array.from(fileCollections.keys());
     const total = files.length;
     const normalizedPaths = new Set<string>();
 
@@ -50,13 +86,15 @@ export async function indexFiles(
       mtime: number;
       contentHash: string;
       chunks: { content: string; lineStart: number; lineEnd: number; headings?: string[] }[];
+      collectionNames: string[];
     }
     const work: FileWork[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const normalizedPath = file.replace(/\//g, '\\');
+      const normalizedPath = file; // Already normalized
       normalizedPaths.add(normalizedPath);
+      const collectionNames = Array.from(fileCollections.get(normalizedPath) || []);
 
       options.onProgress?.({
         total,
@@ -71,7 +109,15 @@ export async function indexFiles(
 
         const existing = db.getFile(normalizedPath);
 
+        // If file exists and hasn't changed, we still need to update collections
         if (!options.force && existing && existing.mtime === mtime) {
+          // Update collections for existing file
+          db.clearFileCollections(existing.id);
+          for (const name of collectionNames) {
+            const collectionId = db.upsertCollection(name);
+            db.addFileToCollection(existing.id, collectionId);
+          }
+
           skipped++;
           continue;
         }
@@ -81,6 +127,14 @@ export async function indexFiles(
 
         if (!options.force && existing && existing.contentHash === contentHash) {
           db.upsertFile(normalizedPath, mtime, contentHash);
+
+          // Update collections for existing file
+          db.clearFileCollections(existing.id);
+          for (const name of collectionNames) {
+            const collectionId = db.upsertCollection(name);
+            db.addFileToCollection(existing.id, collectionId);
+          }
+
           skipped++;
           continue;
         }
@@ -97,12 +151,19 @@ export async function indexFiles(
           if (existingFile) {
             db.deleteChunksForFile(existingFile.id);
             db.upsertFile(normalizedPath, mtime, contentHash);
+
+            // Update collections even for empty files
+            db.clearFileCollections(existingFile.id);
+            for (const name of collectionNames) {
+              const collectionId = db.upsertCollection(name);
+              db.addFileToCollection(existingFile.id, collectionId);
+            }
           }
           skipped++;
           continue;
         }
 
-        work.push({ file, normalizedPath, mtime, contentHash, chunks });
+        work.push({ file, normalizedPath, mtime, contentHash, chunks, collectionNames });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         errors.push(`${normalizedPath}: ${message}`);
@@ -137,7 +198,7 @@ export async function indexFiles(
 
     let embeddingsSucceeded = false;
     try {
-      const embeddings = await getEmbeddingsParallel(allTexts, config, (completed, total) => {
+      const embeddings = await getEmbeddingsParallel(allTexts, config, (completed: number, total: number) => {
         process.stdout.write(`\r  Batch ${completed}/${total}`);
       });
       console.log(''); // New line after progress
@@ -152,6 +213,14 @@ export async function indexFiles(
           if (chunkIdx === 0) {
             const fileId = db.upsertFile(w.normalizedPath, w.mtime, w.contentHash);
             db.deleteChunksForFile(fileId);
+
+            // Update collections
+            db.clearFileCollections(fileId);
+            for (const name of w.collectionNames) {
+              const collectionId = db.upsertCollection(name);
+              db.addFileToCollection(fileId, collectionId);
+            }
+
             (w as FileWork & { fileId: number }).fileId = fileId;
           }
 
@@ -170,6 +239,7 @@ export async function indexFiles(
         }
       });
       embeddingsSucceeded = true;
+
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       errors.push(`Embedding error: ${message}`);

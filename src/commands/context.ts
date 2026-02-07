@@ -1,14 +1,21 @@
-// context command - build context block from query
+// context command - build context block from query and manage path contexts
 
 import { Command } from 'commander';
 import { search } from '../core/searcher.js';
 import { FactsDB } from '../storage/facts.js';
 import { assembleTimeline, formatTimelineAsContext } from '../core/timeline.js';
-import { loadConfig } from '../utils/config.js';
+import { loadConfig, saveConfig } from '../utils/config.js';
+import path from 'path';
+import chalk from 'chalk';
 
 export function registerContextCommand(program: Command): void {
-  program
-    .command('context <query>')
+  const contextCmd = program
+    .command('context')
+    .description('Manage path contexts and build context blocks');
+
+  // Subcommand: build (existing functionality)
+  contextCmd
+    .command('build <query>')
     .description('Build context block from memories for injection')
     .option('-l, --limit <n>', 'Max results', '5')
     .option('-t, --tokens <n>', 'Max tokens in output', '2000')
@@ -26,4 +33,74 @@ export function registerContextCommand(program: Command): void {
 
       console.log(context);
     });
+
+  // Subcommand: add
+  contextCmd
+    .command('add <path> <description>')
+    .description('Add a context description for a specific path')
+    .action(async (targetPath: string, description: string) => {
+      const config = loadConfig();
+      if (!config.pathContexts) {
+        config.pathContexts = [];
+      }
+
+      // Resolve path
+      const resolvedPath = targetPath === '/' || targetPath === '\\' ? '/' : path.resolve(targetPath);
+
+      // Remove existing entry for this path if any
+      config.pathContexts = config.pathContexts.filter(c => c.path !== resolvedPath);
+
+      // Add new entry
+      config.pathContexts.push({
+        path: resolvedPath,
+        description: description.trim()
+      });
+
+      await saveConfig(config);
+      console.log(chalk.green(`Added context for ${resolvedPath}`));
+      console.log(chalk.gray(`"${description}"`));
+    });
+
+  // Subcommand: list
+  contextCmd
+    .command('list')
+    .description('List all path contexts')
+    .action(() => {
+      const config = loadConfig();
+      if (!config.pathContexts || config.pathContexts.length === 0) {
+        console.log(chalk.yellow('No path contexts defined.'));
+        return;
+      }
+
+      console.log(chalk.cyan('Path Contexts:'));
+      for (const ctx of config.pathContexts) {
+        console.log(`${chalk.green(ctx.path)}: ${ctx.description}`);
+      }
+    });
+
+  // Subcommand: rm
+  contextCmd
+    .command('rm <path>')
+    .description('Remove a path context')
+    .action(async (targetPath: string) => {
+      const config = loadConfig();
+      if (!config.pathContexts || config.pathContexts.length === 0) {
+        console.log(chalk.yellow('No path contexts to remove.'));
+        return;
+      }
+
+      const resolvedPath = targetPath === '/' || targetPath === '\\' ? '/' : path.resolve(targetPath);
+      const initialLength = config.pathContexts.length;
+      config.pathContexts = config.pathContexts.filter(c => c.path !== resolvedPath);
+
+      if (config.pathContexts.length < initialLength) {
+        await saveConfig(config);
+        console.log(chalk.green(`Removed context for ${resolvedPath}`));
+      } else {
+        console.log(chalk.yellow(`No context found for ${resolvedPath}`));
+      }
+    });
+
+  // Legacy support: if first arg is not a subcommand, treat as build
+  // This is tricky in Commander, so we'll just advise users to use 'build'
 }

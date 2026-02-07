@@ -23,7 +23,7 @@ interface SearchResultWithRank extends SearchResult {
 function getBlendWeights(rank: number): { retrieval: number; reranker: number } {
   if (rank <= 3) return { retrieval: 0.95, reranker: 0.05 };
   if (rank <= 10) return { retrieval: 0.90, reranker: 0.10 };
-  return { retrieval: 0.85, reranker: 0.15 };
+  return { retrieval: 0.80, reranker: 0.20 };
 }
 
 function clamp01(value: number): number {
@@ -91,11 +91,11 @@ export async function rerankResults(
   config: Config
 ): Promise<SearchResult[]> {
   if (process.env.MEMORY_SEARCH_DISABLE_RERANK === '1') {
-    return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
+    return results.map(({ rrfRank: _, fullContent: __, contentHash: ____, ...rest }) => rest);
   }
   if (results.length === 0) return results;
   if (isTrivialQuery(query)) {
-    return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
+    return results.map(({ rrfRank: _, fullContent: __, contentHash: ____, ...rest }) => rest);
   }
 
   const cache = new RerankCache(config);
@@ -133,7 +133,7 @@ export async function rerankResults(
       // Fall back to original order if reranking fails
       console.error(`Rerank failed: ${response.status}`);
       cache.close();
-      return results.map(({ rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest }) => rest);
+      return results.map(({ rrfRank: _, fullContent: __, contentHash: ____, ...rest }) => rest);
     }
 
     const body = (await response.json()) as unknown;
@@ -179,9 +179,10 @@ export async function rerankResults(
 
     const blendedScore = weights.retrieval * retrievalScore + weights.reranker * rerankerScore;
 
-    const { rrfRank: _, fullContent: __, chunkId: ___, contentHash: ____, ...rest } = original;
+    const { rrfRank: _, fullContent: __, contentHash: ____, ...rest } = original;
     return {
       ...rest,
+      chunkId: original.chunkId,
       explain: {
         ...original.explain,
         rerankerScore,

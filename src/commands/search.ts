@@ -3,6 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { search } from '../core/searcher.js';
+import { MemoryDB } from '../storage/db.js';
 import { checkEmbeddingServer } from '../core/embeddings.js';
 import { loadConfig } from '../utils/config.js';
 import { basename } from 'node:path';
@@ -15,7 +16,18 @@ export function registerSearchCommand(program: Command): void {
     .option('-f, --format <type>', 'Output format (human|json)', 'human')
     .option('-e, --expand', 'Expand query into variations for better recall')
     .option('--explain', 'Show per-result score breakdown')
-    .action(async (query: string, options: { limit: string; format: string; expand?: boolean; explain?: boolean }) => {
+    .option('--collection <name>', 'Filter by collection')
+    .option('--compact', 'Compact output for LLM consumption')
+    .option('--timeline <chunkId>', 'Show timeline context around a chunk')
+    .action(async (query: string, options: {
+      limit: string;
+      format: string;
+      expand?: boolean;
+      explain?: boolean;
+      collection?: string;
+      compact?: boolean;
+      timeline?: string;
+    }) => {
       const config = loadConfig();
       config.searchTopK = parseInt(options.limit, 10);
       config.expandQueries = options.expand ?? false;
@@ -31,9 +43,54 @@ export function registerSearchCommand(program: Command): void {
       }
 
       try {
+        const db = new MemoryDB(config);
+
+        // Handle timeline view
+        if (options.timeline) {
+          const chunkId = parseInt(options.timeline, 10);
+          const chunks = db.getSurroundingChunks(chunkId, 2); // 2 before, 2 after
+
+          if (chunks.length === 0) {
+            console.log(chalk.yellow('No timeline context found.'));
+            return;
+          }
+
+          if (options.format === 'json') {
+             console.log(JSON.stringify({ timeline: chunks }, null, 2));
+             return;
+          }
+
+          console.log(chalk.cyan(`Timeline Context for Chunk #${chunkId}:\n`));
+          for (const chunk of chunks) {
+            const isTarget = chunk.id === chunkId;
+            const prefix = isTarget ? chalk.green('➤ ') : chalk.gray('  ');
+            const file = basename(chunk.filePath);
+            console.log(`${prefix}${chalk.bold(file)} (Chunk ${chunk.chunkIndex})`);
+
+            // Indent content
+            const content = chunk.content.split('\n').map(l => `    ${l}`).join('\n');
+            if (isTarget) {
+              console.log(chalk.white(content));
+            } else {
+              console.log(chalk.gray(content));
+            }
+            console.log('');
+          }
+          return;
+        }
+
         const results = await search(query, config);
 
-        if (results.length === 0) {
+        // Filter by collection if requested
+        let filteredResults = results;
+        if (options.collection) {
+          const collectionFiles = new Set(db.getFilesByCollection(options.collection).map(f => f.path));
+          filteredResults = results.filter(r => collectionFiles.has(r.file));
+        }
+
+        db.close();
+
+        if (filteredResults.length === 0) {
           if (options.format === 'json') {
             console.log(JSON.stringify({ query, results: [] }));
           } else {
@@ -42,13 +99,29 @@ export function registerSearchCommand(program: Command): void {
           return;
         }
 
-        if (options.format === 'json') {
-          console.log(JSON.stringify({ query, results }, null, 2));
-        } else {
-          console.log(chalk.green(`\nFound ${results.length} matches:\n`));
+        if (options.format === 'json' || options.compact) {
+          if (options.compact) {
+            // Compact output for LLM
+            const compact = filteredResults.map(r => ({
+              id: r.chunkId,
+              file: r.file,
+              score: Number(r.score.toFixed(3)),
+              lines: [r.lineStart, r.lineEnd]
+            }));
 
-          for (let i = 0; i < results.length; i++) {
-            const r = results[i];
+            console.log(JSON.stringify({ results: compact }));
+          } else {
+            // Full JSON output
+            console.log(JSON.stringify({
+              query,
+              results: filteredResults,
+            }, null, 2));
+          }
+        } else {
+          console.log(chalk.green(`\nFound ${filteredResults.length} matches:\n`));
+
+          for (let i = 0; i < filteredResults.length; i++) {
+            const r = filteredResults[i];
             const fileName = basename(r.file);
             // Score is already 0-1 from reranker blending, convert to percentage
             const scorePercent = Math.round(r.score * 100);

@@ -22,7 +22,6 @@ import { FactsDB } from '../storage/facts.js';
 import { chunkMarkdown } from '../core/chunker.js';
 import { getEmbeddingsParallel } from '../core/embeddings.js';
 import { hashContent } from '../utils/hash.js';
-import { compressContent } from '../core/compressor.js';
 import { extractFacts } from '../core/fact-extractor.js';
 import type { Config, Observation, LLMCaptureDecision } from '../types.js';
 
@@ -191,14 +190,8 @@ async function indexCaptures(captures: EnhancedCapture[], sessionId?: string): P
       return 0;
     }
 
-    // Get embeddings - use compressed content if enabled
+    // Get embeddings
     let textsForEmbedding = chunks.map((c) => c.content);
-    if (config.compressionEnabled) {
-      console.error(`[auto-capture] Compressing ${textsForEmbedding.length} chunks...`);
-      textsForEmbedding = await Promise.all(
-        textsForEmbedding.map((text) => compressContent(text, config))
-      );
-    }
     console.error(`[auto-capture] Embedding ${textsForEmbedding.length} chunks...`);
 
     const embeddings = await getEmbeddingsParallel(textsForEmbedding, config);

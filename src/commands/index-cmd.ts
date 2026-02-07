@@ -26,7 +26,8 @@ export function registerIndexCommand(program: Command): void {
       }
 
       console.log(chalk.blue('Indexing files...'));
-      console.log(chalk.gray(`Sources: ${config.sources.join(', ')}`));
+      const sourceCount = (config.sources?.length || 0) + (config.collections?.length || 0);
+      console.log(chalk.gray(`Sources: ${sourceCount} configured`));
 
       const startTime = Date.now();
 

@@ -6,6 +6,7 @@ import { getEmbedding, prefixQuery } from './embeddings.js';
 import { findTopK } from '../utils/cosine.js';
 import { rerankResults } from './reranker.js';
 import { expandQueryStructured } from './expander.js';
+import { resolveContextForPath } from '../utils/context-resolver.js';
 import type { Config, SearchResult } from '../types.js';
 
 const RRF_K = 60; // RRF constant (commonly 60)
@@ -33,7 +34,7 @@ export async function search(
   config: Config
 ): Promise<SearchResult[]> {
   const db = new MemoryDB(config);
-  const candidateCap = config.searchCandidateCap ?? 200;
+  const candidateCap = config.searchCandidateCap ?? 300;
 
   try {
     // Build list of queries with weights and types
@@ -49,7 +50,11 @@ export async function search(
 
     // Expand query if enabled
     if (config.expandQueries) {
-      const expanded = await expandQueryStructured(query, config);
+      // Resolve context hints for the current directory
+      const cwd = process.cwd();
+      const contextHints = resolveContextForPath(cwd, config.pathContexts);
+
+      const expanded = await expandQueryStructured(query, config, contextHints);
 
       // Add keyword-optimized queries (for FTS)
       for (const lexQuery of expanded.lex) {
@@ -285,7 +290,7 @@ async function semanticSearch(
   const prefixedQuery = prefixQuery(query);
   const queryEmbedding = await getEmbedding(prefixedQuery, config);
 
-  const topK = Math.min(config.searchTopK * 5, candidateCap);
+  const topK = Math.min(config.searchTopK * 8, candidateCap);
 
   // Try VSS search first if available
   if (db.isVssEnabled()) {
