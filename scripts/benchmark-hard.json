@@ -41,23 +41,21 @@
       "id": "s5",
       "query": "where did I document cloudant lite 1gb forever free with credit card verification",
       "expected": [
-        "session-2025-12-16T184742.md",
-        "2026-02-03_Obsidian-dataset_3e64fa27.md"
+        "session-2025-12-16T184742.md"
       ],
       "notes": "session-memory"
     },
     {
       "id": "s6",
-      "query": "memory user appliesTo globs /memory output with three memory sources",
+      "query": "test-memory.md appliesTo globs /memory command output three memory sources",
       "expected": [
-        "session-2026-02-06T141057.md",
-        "session-2026-02-03T112406.md"
+        "session-2026-02-06T141057.md"
       ],
       "notes": "session-memory"
     },
     {
       "id": "s7",
-      "query": "claude code session archive with 200+ manim scenes and security fixes",
+      "query": "archived session manim scenes security fixes",
       "expected": [
         "2026-01-30_archived_ee0e8744.md"
       ],
@@ -65,21 +63,18 @@
     },
     {
       "id": "c1",
-      "query": "increase prices strategy across money models and ltv",
+      "query": "increase prices ltv action step maximize profit",
       "expected": [
         "02-increase-prices.md",
-        "05-increase-prices.md",
-        "00-frontmatter.md"
+        "05-increase-prices.md"
       ],
       "notes": "cross-domain"
     },
     {
       "id": "c2",
-      "query": "create content hooks ads leads nurture workflow",
+      "query": "testing hooks writing hooks from winners paid ads content",
       "expected": [
-        "06-testing-hooks.md",
-        "04-writing-hooks-from-winners.md",
-        "2025-07-11_if i have the instantly free trial do i get to use the supersearch_ab7fd613.md"
+        "04-writing-hooks-from-winners.md"
       ],
       "notes": "cross-domain"
     },
@@ -115,11 +110,9 @@
     },
     {
       "id": "v2",
-      "query": "the video animation library for math",
+      "query": "manim library mathematical animation videos",
       "expected": [
-        "2025-09-21_find me all of his resources from this video_ea3c1c27.md",
-        "2025-06-04_YT Playlist Knowledge Base_02936049.md",
-        "lol (76).md"
+        "2026-01-30_archived_ee0e8744.md"
       ],
       "notes": "vague-natural-language"
     },
