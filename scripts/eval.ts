@@ -72,7 +72,9 @@ function parseArgs(argv: string[]): Record<string, string | boolean> {
 }
 
 function normalizePath(value: string): string {
-  const normalized = value.replace(/\\/g, '/');
+  // Replace backslashes and strip Private Use Area Unicode chars (0xE000-0xF8FF)
+  // that Windows tools use as replacements for invalid filename chars like ':'
+  const normalized = value.replace(/\\/g, '/').replace(/[\uE000-\uF8FF]/g, '');
   return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
 }
 
