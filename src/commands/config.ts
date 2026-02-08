@@ -92,16 +92,36 @@ export function registerConfigCommand(program: Command): void {
 
       const currentValue = (config as unknown as Record<string, unknown>)[key];
 
+      // Handle null to clear optional fields
+      if (value === 'null') {
+        (config as unknown as Record<string, unknown>)[key] = undefined;
+        saveConfig(config);
+        console.log(chalk.green(`Cleared ${key}`));
+        return;
+      }
+
       // Parse value based on current type
       let parsed: unknown;
       if (typeof currentValue === 'number') {
-        parsed = parseInt(value, 10);
-        if (Number.isNaN(parsed as number)) {
+        parsed = Number(value);
+        if (!Number.isFinite(parsed as number)) {
           console.error(chalk.red(`Invalid number: ${value}`));
           process.exit(1);
         }
       } else if (typeof currentValue === 'boolean') {
+        if (!['true', 'false', '1', '0'].includes(value)) {
+          console.error(chalk.red(`Invalid boolean: ${value} (use true/false/1/0)`));
+          process.exit(1);
+        }
         parsed = value === 'true' || value === '1';
+      } else if (Array.isArray(currentValue) || (typeof currentValue === 'object' && currentValue !== null)) {
+        try {
+          parsed = JSON.parse(value);
+        } catch {
+          console.error(chalk.red(`Invalid JSON for ${key}: ${value}`));
+          console.error(chalk.gray('Arrays and objects must be valid JSON, e.g.: \'["path/a","path/b"]\''));
+          process.exit(1);
+        }
       } else {
         parsed = value;
       }

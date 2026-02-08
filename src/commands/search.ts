@@ -28,8 +28,31 @@ export function registerSearchCommand(program: Command): void {
       compact?: boolean;
       timeline?: string;
     }) => {
+      // Validate inputs
+      const limit = parseInt(options.limit, 10);
+      if (!Number.isFinite(limit) || limit < 1) {
+        console.error(chalk.red('Error: --limit must be a positive integer'));
+        process.exit(1);
+      }
+      const validFormats = ['human', 'json'];
+      if (!validFormats.includes(options.format)) {
+        console.error(chalk.red(`Error: --format must be one of: ${validFormats.join(', ')}`));
+        process.exit(1);
+      }
+      if (options.timeline !== undefined) {
+        const tid = parseInt(options.timeline, 10);
+        if (!Number.isFinite(tid) || tid < 0) {
+          console.error(chalk.red('Error: --timeline must be a non-negative integer (chunk ID)'));
+          process.exit(1);
+        }
+      }
+      if (!query.trim()) {
+        console.error(chalk.red('Error: search query cannot be empty'));
+        process.exit(1);
+      }
+
       const config = loadConfig();
-      config.searchTopK = parseInt(options.limit, 10);
+      config.searchTopK = limit;
       config.expandQueries = options.expand ?? false;
 
       // Check if embedding server is running
