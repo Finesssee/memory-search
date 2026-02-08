@@ -31,7 +31,8 @@ interface RankedItem {
 
 export async function search(
   query: string,
-  config: Config
+  config: Config,
+  onStage?: (stage: string) => void
 ): Promise<SearchResult[]> {
   const db = new MemoryDB(config);
   const candidateCap = config.searchCandidateCap ?? 300;
@@ -51,6 +52,7 @@ export async function search(
 
     // Expand query if enabled
     if (config.expandQueries) {
+      onStage?.('Expanding query...');
       // Resolve context hints for the current directory
       const cwd = process.cwd();
       const contextHints = resolveContextForPath(cwd, config.pathContexts);
@@ -77,6 +79,7 @@ export async function search(
     const chunkBestRanks = new Map<number, { semanticRank?: number; keywordRank?: number }>();
 
     // Run semantic and keyword search for all queries in parallel
+    onStage?.('Searching...');
     const searchPromises = queries.map(async (q) => {
       // Only run semantic search for original, vec, and hyde queries
       // Only run keyword search for original and lex queries
@@ -270,7 +273,9 @@ export async function search(
       .filter((r): r is NonNullable<typeof r> => r !== null);
 
     // Rerank using multi-model ensemble (BGE + Gemma + Qwen)
+    onStage?.('Reranking...');
     const reranked = await rerankResults(query, initialResults, config);
+    onStage?.('Done');
     return reranked.slice(0, finalTopK);
   } finally {
     db.close();

@@ -102,7 +102,21 @@ export function registerSearchCommand(program: Command): void {
           return;
         }
 
-        const results = await search(query, config);
+        const showStatus = process.stderr.isTTY && options.format !== 'json' && !options.compact;
+        const clearStatus = () => {
+          if (showStatus) process.stderr.write('\r\x1b[K');
+        };
+        const onStage = showStatus
+          ? (stage: string) => {
+              if (stage === 'Done') {
+                clearStatus();
+              } else {
+                process.stderr.write(`\r${chalk.dim(stage)}`);
+              }
+            }
+          : undefined;
+
+        const results = await search(query, config, onStage);
 
         // Filter by collection if requested
         let filteredResults = results;
