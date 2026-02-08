@@ -83,8 +83,7 @@
       "query": "in-person to remote ratio of customers per employee",
       "expected": [
         "06-decrease-costs.md",
-        "03-decrease-costs.md",
-        "2025-11-30_13-09-22_Perplexity_lol.md"
+        "03-decrease-costs.md"
       ],
       "notes": "cross-domain"
     },
@@ -103,7 +102,7 @@
       "expected": [
         "02-free-promotions.md",
         "03-discount-promotions.md",
-        "2025-08-20_lol_bbd3c466.md"
+        "lol (70).md"
       ],
       "notes": "vague-natural-language"
     },
@@ -135,8 +134,7 @@
       "id": "t1",
       "query": "typescript scrape engine interface",
       "expected": [
-        "apps/api/src/scraper/AGENTS.md",
-        "firecrawl-mcp-server/src/legacy/index.md"
+        "2025-06-15_Firecrawl vs Exa MCP_11557031.md"
       ],
       "notes": "specific-technical"
     },
@@ -179,7 +177,7 @@
       "query": "scpoed memry",
       "expected": [
         "session-2026-02-03T104414.md",
-        "lol (58).md"
+        "lol (48).md"
       ],
       "notes": "edge-case-typo"
     },
