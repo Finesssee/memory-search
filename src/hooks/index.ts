@@ -5,15 +5,16 @@ import { readdirSync, readFileSync, statSync, existsSync, mkdirSync } from 'node
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Config, LLMCaptureDecision, Observation, ObservationType } from '../types.js';
-import { detectMode } from '../modes/index.js';
+import { detectMode, shouldSkipForMode } from '../modes/index.js';
 import { fetchWithRetry } from '../utils/network.js';
+import { getChatEndpoint } from '../utils/api-endpoints.js';
 
 // Directory constants
 export const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
 export const PENDING_CAPTURES_PATH = join(homedir(), '.memory-search', 'pending-captures.jsonl');
 
-// Patterns that indicate content worth capturing
-export const CAPTURE_TRIGGERS = /\b(remember|prefer|decided|always|never|important|learned|note to self|takeaway|insight|realized|discovered|found that|turns out|key point|rule of thumb)\b/i;
+// Patterns that indicate content worth capturing (tightened to reduce false positives)
+export const CAPTURE_TRIGGERS = /\b(i (?:prefer|decided|learned|realized|discovered|always|never)|my [\w]+ is|note to self|takeaway|key (?:point|insight|takeaway)|rule of thumb|found that|turns out|setting:|configured? to)\b/i;
 
 // Privacy tags - content within these should not be captured
 export const PRIVACY_TAGS = [
@@ -115,7 +116,9 @@ export function getMessageContent(msg: SessionMessage): string {
  * Check if content matches any capture triggers
  */
 export function shouldCapture(content: string): boolean {
-  if (!content || content.length < 10) return false;
+  if (!content || content.length < 30) return false;
+  const mode = detectMode(content);
+  if (shouldSkipForMode(content, mode)) return false;
   return CAPTURE_TRIGGERS.test(content);
 }
 
@@ -132,9 +135,7 @@ export async function shouldCaptureLLM(
     return { capture: false, reason: 'Content too short' };
   }
 
-  // Build chat endpoint by appending /chat to base (matches expander.ts pattern)
-  const baseEndpoint = config.embeddingEndpoint.replace(/\/$/, '');
-  const chatEndpoint = baseEndpoint + '/chat';
+  const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
   const mode = detectMode(content);
 
   const prompt = `Decide if this content should be saved to long-term memory.
