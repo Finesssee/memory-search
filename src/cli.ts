@@ -3,6 +3,9 @@
 
 import { Command } from 'commander';
 import { registerCommands } from './commands/index.js';
+import { installSigintHandler } from './utils/shutdown.js';
+
+installSigintHandler();
 
 const program = new Command();
 

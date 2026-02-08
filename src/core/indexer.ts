@@ -7,7 +7,8 @@ import { chunkMarkdown } from './chunker.js';
 import { getEmbeddingsParallel, prefixDocument } from './embeddings.js';
 import { hashContent } from '../utils/hash.js';
 import { contextualizeFileChunks } from './contextualizer.js';
-import { logInfo } from '../utils/log.js';
+import { logInfo, logWarn } from '../utils/log.js';
+import { isShutdownRequested } from '../utils/shutdown.js';
 import type { Config } from '../types.js';
 
 const BATCH_SIZE = 100;
@@ -167,6 +168,10 @@ export async function indexFiles(
     };
 
     for (let i = 0; i < files.length; i++) {
+      if (isShutdownRequested()) {
+        logInfo('indexer', 'Shutdown requested, stopping file scan');
+        break;
+      }
       processFile(i);
     }
 
@@ -199,6 +204,10 @@ export async function indexFiles(
       const filePromises: Promise<void>[] = [];
 
       for (const w of work) {
+        if (isShutdownRequested()) {
+          logInfo('indexer', 'Shutdown requested, skipping remaining contextualization');
+          break;
+        }
         if (fileRunning >= FILE_CONCURRENCY) {
           await new Promise<void>(r => fileWaiters.push(r));
         }
@@ -259,45 +268,49 @@ export async function indexFiles(
       });
       console.log(''); // New line after progress
 
-      // Store all chunks with their embeddings in a single transaction
-      db.withTransaction(() => {
-        for (let i = 0; i < allChunks.length; i++) {
-          const { work: w, chunkIdx } = allChunks[i];
-          const chunk = w.chunks[chunkIdx];
+      if (isShutdownRequested()) {
+        logInfo('indexer', 'Shutdown requested, skipping database write');
+      } else {
+        // Store all chunks with their embeddings in a single transaction
+        db.withTransaction(() => {
+          for (let i = 0; i < allChunks.length; i++) {
+            const { work: w, chunkIdx } = allChunks[i];
+            const chunk = w.chunks[chunkIdx];
 
-          // Upsert file on first chunk
-          if (chunkIdx === 0) {
-            const fileId = db.upsertFile(w.normalizedPath, w.mtime, w.contentHash);
-            db.deleteChunksForFile(fileId);
+            // Upsert file on first chunk
+            if (chunkIdx === 0) {
+              const fileId = db.upsertFile(w.normalizedPath, w.mtime, w.contentHash);
+              db.deleteChunksForFile(fileId);
 
-            // Update collections
-            db.clearFileCollections(fileId);
-            for (const name of w.collectionNames) {
-              const collectionId = db.upsertCollection(name);
-              db.addFileToCollection(fileId, collectionId);
+              // Update collections
+              db.clearFileCollections(fileId);
+              for (const name of w.collectionNames) {
+                const collectionId = db.upsertCollection(name);
+                db.addFileToCollection(fileId, collectionId);
+              }
+
+              (w as FileWork & { fileId: number }).fileId = fileId;
             }
 
-            (w as FileWork & { fileId: number }).fileId = fileId;
+            const fileId = (w as FileWork & { fileId: number }).fileId;
+            const prefixes = contextPrefixes.get(w);
+            const ctxPrefix = prefixes?.[chunkIdx] ?? '';
+            db.insertChunk(
+              fileId,
+              chunkIdx,
+              chunk.content,
+              chunk.lineStart,
+              chunk.lineEnd,
+              embeddings[i],
+              undefined,
+              undefined,
+              { filePath: w.normalizedPath, headings: chunk.headings },
+              ctxPrefix || undefined
+            );
           }
-
-          const fileId = (w as FileWork & { fileId: number }).fileId;
-          const prefixes = contextPrefixes.get(w);
-          const ctxPrefix = prefixes?.[chunkIdx] ?? '';
-          db.insertChunk(
-            fileId,
-            chunkIdx,
-            chunk.content,
-            chunk.lineStart,
-            chunk.lineEnd,
-            embeddings[i],
-            undefined,
-            undefined,
-            { filePath: w.normalizedPath, headings: chunk.headings },
-            ctxPrefix || undefined
-          );
-        }
-      });
-      embeddingsSucceeded = true;
+        });
+        embeddingsSucceeded = true;
+      }
 
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
