@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.73.0
-        version: 0.73.0
       better-sqlite3:
         specifier: ^11.8.1
         version: 11.10.0
@@ -23,9 +20,9 @@ importers:
       glob:
         specifier: ^11.0.1
         version: 11.1.0
-      sqlite-vss:
-        specifier: ^0.1.2
-        version: 0.1.2
+      sqlite-vec:
+        specifier: ^0.1.7-alpha.2
+        version: 0.1.7-alpha.2
     devDependencies:
       '@types/better-sqlite3':
         specifier: ^7.6.12
@@ -44,19 +41,6 @@ importers:
         version: 3.2.4(@types/node@22.19.7)(tsx@4.21.0)
 
 packages:
-
-  '@anthropic-ai/sdk@0.73.0':
-    resolution: {integrity: sha512-URURVzhxXGJDGUGFunIOtBlSl7KWvZiAAKY/ttTkZAkXT9bTPqdk2eK0b8qqSxXpikh3QKPnPYpiyX98zf5ebw==}
-    hasBin: true
-    peerDependencies:
-      zod: ^3.25.0 || ^4.0.0
-    peerDependenciesMeta:
-      zod:
-        optional: true
-
-  '@babel/runtime@7.28.6':
-    resolution: {integrity: sha512-05WQkdpL9COIMz4LjTxGpPNCdlpyimKppYNoJ5Di5EUObifl8t4tuLuUBBZEpoLYOmfvIWrsp9fCl0HoPRVTdA==}
-    engines: {node: '>=6.9.0'}
 
   '@esbuild/aix-ppc64@0.27.2':
     resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
@@ -581,10 +565,6 @@ packages:
   js-tokens@9.0.1:
     resolution: {integrity: sha512-mxa9E9ITFOt0ban3j6L5MpjwegGz6lBQmM1IJkWeBZGcMxto50+eWdjC/52xDbS2vy0k7vIMK0Fe2wfL9OQSpQ==}
 
-  json-schema-to-ts@3.1.1:
-    resolution: {integrity: sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==}
-    engines: {node: '>=16'}
-
   loupe@3.2.1:
     resolution: {integrity: sha512-CdzqowRJCeLU72bHvWqwRBBlLcMEtIvGrlvef74kMnV2AolS9Y8xUv1I0U/MNAWMhBlKIoyuEgoJ0t/bbwHbLQ==}
 
@@ -717,23 +697,33 @@ packages:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
     engines: {node: '>=0.10.0'}
 
-  sqlite-vss-darwin-arm64@0.1.2:
-    resolution: {integrity: sha512-zyDk9eg33nBABrUC4cqQ7el8KJaRPzsqp8Y/nGZ0CAt7o1PMqLoCOgREorill5MGiZEBmLqxdAgw0O2MFwq4mw==}
+  sqlite-vec-darwin-arm64@0.1.7-alpha.2:
+    resolution: {integrity: sha512-raIATOqFYkeCHhb/t3r7W7Cf2lVYdf4J3ogJ6GFc8PQEgHCPEsi+bYnm2JT84MzLfTlSTIdxr4/NKv+zF7oLPw==}
     cpu: [arm64]
     os: [darwin]
 
-  sqlite-vss-darwin-x64@0.1.2:
-    resolution: {integrity: sha512-w+ODOH2dNkyO6UaGclwC0jwNf/FBsKaE53XKJ7dFmpOvlvO0/9sA1stkWXygykRVWwa3UD8ow0qbQpRwdOFyqg==}
+  sqlite-vec-darwin-x64@0.1.7-alpha.2:
+    resolution: {integrity: sha512-jeZEELsQjjRsVojsvU5iKxOvkaVuE+JYC8Y4Ma8U45aAERrDYmqZoHvgSG7cg1PXL3bMlumFTAmHynf1y4pOzA==}
     cpu: [x64]
     os: [darwin]
 
-  sqlite-vss-linux-x64@0.1.2:
-    resolution: {integrity: sha512-y1qktcHAZcfN1nYMcF5os/cCRRyaisaNc2C9I3ceLKLPAqUWIocsOdD5nNK/dIeGPag/QeT2ZItJ6uYWciLiAg==}
+  sqlite-vec-linux-arm64@0.1.7-alpha.2:
+    resolution: {integrity: sha512-6Spj4Nfi7tG13jsUG+W7jnT0bCTWbyPImu2M8nWp20fNrd1SZ4g3CSlDAK8GBdavX7wRlbBHCZ+BDa++rbDewA==}
+    cpu: [arm64]
+    os: [linux]
+
+  sqlite-vec-linux-x64@0.1.7-alpha.2:
+    resolution: {integrity: sha512-IcgrbHaDccTVhXDf8Orwdc2+hgDLAFORl6OBUhcvlmwswwBP1hqBTSEhovClG4NItwTOBNgpwOoQ7Qp3VDPWLg==}
     cpu: [x64]
     os: [linux]
 
-  sqlite-vss@0.1.2:
-    resolution: {integrity: sha512-MgTz3GLT04ckv1kaesbrsUU6/kcVsA6vGeCS/HO5d/8zKqCuZFCD0QlJaQnS6zwaMyPG++BO/uu40MMrMa0cow==}
+  sqlite-vec-windows-x64@0.1.7-alpha.2:
+    resolution: {integrity: sha512-TRP6hTjAcwvQ6xpCZvjP00pdlda8J38ArFy1lMYhtQWXiIBmWnhMaMbq4kaeCYwvTTddfidatRS+TJrwIKB/oQ==}
+    cpu: [x64]
+    os: [win32]
+
+  sqlite-vec@0.1.7-alpha.2:
+    resolution: {integrity: sha512-rNgRCv+4V4Ed3yc33Qr+nNmjhtrMnnHzXfLVPeGb28Dx5mmDL3Ngw/Wk8vhCGjj76+oC6gnkmMG8y73BZWGBwQ==}
 
   stackback@0.0.2:
     resolution: {integrity: sha512-1XMJE5fQo1jGH6Y/7ebnwPOBEkIEnT4QF32d5R1+VXdXveM0IBMJt8zfaxX1P3QhVwrYe+576+jkANtSS2mBbw==}
@@ -795,9 +785,6 @@ packages:
   tinyspy@4.0.4:
     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
     engines: {node: '>=14.0.0'}
-
-  ts-algebra@2.0.0:
-    resolution: {integrity: sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==}
 
   tsx@4.21.0:
     resolution: {integrity: sha512-5C1sg4USs1lfG0GFb2RLXsdpXqBSEhAaA/0kPL01wxzpMqLILNxIxIOKiILz+cdg/pLnOUxFYOR5yhHU666wbw==}
@@ -913,12 +900,6 @@ packages:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
 
 snapshots:
-
-  '@anthropic-ai/sdk@0.73.0':
-    dependencies:
-      json-schema-to-ts: 3.1.1
-
-  '@babel/runtime@7.28.6': {}
 
   '@esbuild/aix-ppc64@0.27.2':
     optional: true
@@ -1323,11 +1304,6 @@ snapshots:
 
   js-tokens@9.0.1: {}
 
-  json-schema-to-ts@3.1.1:
-    dependencies:
-      '@babel/runtime': 7.28.6
-      ts-algebra: 2.0.0
-
   loupe@3.2.1: {}
 
   lru-cache@11.2.5: {}
@@ -1475,20 +1451,28 @@ snapshots:
 
   source-map-js@1.2.1: {}
 
-  sqlite-vss-darwin-arm64@0.1.2:
+  sqlite-vec-darwin-arm64@0.1.7-alpha.2:
     optional: true
 
-  sqlite-vss-darwin-x64@0.1.2:
+  sqlite-vec-darwin-x64@0.1.7-alpha.2:
     optional: true
 
-  sqlite-vss-linux-x64@0.1.2:
+  sqlite-vec-linux-arm64@0.1.7-alpha.2:
     optional: true
 
-  sqlite-vss@0.1.2:
+  sqlite-vec-linux-x64@0.1.7-alpha.2:
+    optional: true
+
+  sqlite-vec-windows-x64@0.1.7-alpha.2:
+    optional: true
+
+  sqlite-vec@0.1.7-alpha.2:
     optionalDependencies:
-      sqlite-vss-darwin-arm64: 0.1.2
-      sqlite-vss-darwin-x64: 0.1.2
-      sqlite-vss-linux-x64: 0.1.2
+      sqlite-vec-darwin-arm64: 0.1.7-alpha.2
+      sqlite-vec-darwin-x64: 0.1.7-alpha.2
+      sqlite-vec-linux-arm64: 0.1.7-alpha.2
+      sqlite-vec-linux-x64: 0.1.7-alpha.2
+      sqlite-vec-windows-x64: 0.1.7-alpha.2
 
   stackback@0.0.2: {}
 
@@ -1553,8 +1537,6 @@ snapshots:
   tinyrainbow@2.0.0: {}
 
   tinyspy@4.0.4: {}
-
-  ts-algebra@2.0.0: {}
 
   tsx@4.21.0:
     dependencies:

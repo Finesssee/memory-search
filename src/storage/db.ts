@@ -6,13 +6,13 @@ import type { Config, FileRecord, ChunkRecord, Observation, Session } from '../t
 import { hashContent } from '../utils/hash.js';
 import { logDebug, logInfo, logWarn, logError, errorMessage } from '../utils/log.js';
 
-// Try to load sqlite-vss if available
-let loadVss: ((db: Database.Database) => void) | undefined;
+// Try to load sqlite-vec if available
+let loadVec: ((db: Database.Database) => void) | undefined;
 try {
-  const vssModule = await import('sqlite-vss');
-  loadVss = vssModule.load;
+  const vecModule = await import('sqlite-vec');
+  loadVec = vecModule.load;
 } catch (err) {
-  logDebug('db', 'sqlite-vss module not available', { error: errorMessage(err) });
+  logDebug('db', 'sqlite-vec module not available', { error: errorMessage(err) });
 }
 
 export class MemoryDB {
@@ -24,13 +24,13 @@ export class MemoryDB {
     this.db = new Database(config.indexPath);
     this.dimensions = config.embeddingDimensions;
 
-    // Try to load sqlite-vss extension
-    if (loadVss) {
+    // Try to load sqlite-vec extension
+    if (loadVec) {
       try {
-        loadVss(this.db);
+        loadVec(this.db);
         this.vssEnabled = true;
       } catch (err) {
-        logWarn('db', 'sqlite-vss extension failed to load, using linear scan', { error: errorMessage(err) });
+        logWarn('db', 'sqlite-vec extension failed to load, using linear scan', { error: errorMessage(err) });
         this.vssEnabled = false;
       }
     }
@@ -137,12 +137,13 @@ export class MemoryDB {
     // Enable foreign key support
     this.db.pragma('foreign_keys = ON');
 
-    // Create VSS virtual table if extension is available
+    // Create vec0 virtual table if extension is available
     if (this.vssEnabled) {
       try {
-        this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vss USING vss0(embedding(${this.dimensions}))`);
+        this.db.exec('DROP TABLE IF EXISTS chunks_vss');
+        this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec USING vec0(embedding float[${this.dimensions}] distance_metric=cosine)`);
       } catch (err) {
-        logWarn('db', 'Failed to create VSS virtual table', { error: errorMessage(err) });
+        logWarn('db', 'Failed to create vec0 virtual table', { error: errorMessage(err) });
         this.vssEnabled = false;
       }
     }
@@ -355,12 +356,12 @@ export class MemoryDB {
       logWarn('db', 'FTS5 insert failed for chunk', { chunkIndex, error: errorMessage(err) });
     }
 
-    // Also insert into VSS index if enabled
+    // Also insert into vec0 index if enabled
     if (this.vssEnabled) {
       try {
-        this.db.prepare('INSERT INTO chunks_vss (rowid, embedding) VALUES (?, ?)').run(result.lastInsertRowid, embeddingBuffer);
+        this.db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)').run(result.lastInsertRowid, embeddingBuffer);
       } catch (err) {
-        logWarn('db', 'VSS insert failed for chunk', { chunkIndex, error: errorMessage(err) });
+        logWarn('db', 'vec0 insert failed for chunk', { chunkIndex, error: errorMessage(err) });
       }
     }
   }
@@ -370,13 +371,13 @@ export class MemoryDB {
     const chunkIds = this.db.prepare('SELECT id FROM chunks WHERE file_id = ?').all(fileId) as { id: number }[];
     const ids = chunkIds.map(({ id }) => id);
 
-    // Delete from VSS index if enabled
+    // Delete from vec0 index if enabled
     if (this.vssEnabled && ids.length > 0) {
       try {
         const placeholders = ids.map(() => '?').join(',');
-        this.db.prepare(`DELETE FROM chunks_vss WHERE rowid IN (${placeholders})`).run(...ids);
+        this.db.prepare(`DELETE FROM chunks_vec WHERE rowid IN (${placeholders})`).run(...ids);
       } catch (err) {
-        logWarn('db', 'VSS delete failed', { fileId, count: ids.length, error: errorMessage(err) });
+        logWarn('db', 'vec0 delete failed', { fileId, count: ids.length, error: errorMessage(err) });
       }
     }
 
@@ -722,7 +723,7 @@ export class MemoryDB {
   }
 
   /**
-   * Vector similarity search using sqlite-vss
+   * Vector similarity search using sqlite-vec
    */
   searchVss(queryEmbedding: Float32Array, limit = 50): { chunkId: number; distance: number }[] {
     if (!this.vssEnabled) {
@@ -733,20 +734,19 @@ export class MemoryDB {
       const embeddingBuffer = Buffer.from(queryEmbedding.buffer, queryEmbedding.byteOffset, queryEmbedding.byteLength);
       const rows = this.db.prepare(`
         SELECT rowid, distance
-        FROM chunks_vss
-        WHERE vss_search(embedding, ?)
-        LIMIT ?
+        FROM chunks_vec
+        WHERE embedding MATCH ? AND k = ?
       `).all(embeddingBuffer, limit) as { rowid: number; distance: number }[];
 
       return rows.map(row => ({ chunkId: row.rowid, distance: row.distance }));
     } catch (err) {
-      logWarn('db', 'VSS search failed', { error: errorMessage(err) });
+      logWarn('db', 'vec0 search failed', { error: errorMessage(err) });
       return [];
     }
   }
 
   /**
-   * Rebuild VSS index from chunks table
+   * Rebuild vec0 index from chunks table
    */
   rebuildVss(): void {
     if (!this.vssEnabled) {
@@ -754,18 +754,18 @@ export class MemoryDB {
     }
 
     try {
-      this.db.exec('DELETE FROM chunks_vss');
+      this.db.exec('DELETE FROM chunks_vec');
       const chunks = this.db.prepare('SELECT id, embedding FROM chunks').all() as { id: number; embedding: Buffer }[];
-      const insertStmt = this.db.prepare('INSERT INTO chunks_vss (rowid, embedding) VALUES (?, ?)');
+      const insertStmt = this.db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)');
 
       this.withTransaction(() => {
         for (const chunk of chunks) {
           insertStmt.run(chunk.id, chunk.embedding);
         }
       });
-      logInfo('db', `VSS index rebuilt with ${chunks.length} chunks`);
+      logInfo('db', `vec0 index rebuilt with ${chunks.length} chunks`);
     } catch (err) {
-      logError('db', 'VSS rebuild failed', { error: errorMessage(err) });
+      logError('db', 'vec0 rebuild failed', { error: errorMessage(err) });
     }
   }
 
@@ -803,6 +803,52 @@ export class MemoryDB {
     const cutoff = Date.now() - maxAgeDays * 86_400_000;
     const result = this.db.prepare('DELETE FROM context_cache WHERE created_at < ?').run(cutoff);
     return result.changes;
+  }
+
+  clearAllData(): void {
+    // Disable FK constraints briefly so we can delete in any order
+    this.db.pragma('foreign_keys = OFF');
+    try {
+      this.db.exec('DELETE FROM chunks');
+      this.db.exec('DELETE FROM files');
+      this.db.exec('DELETE FROM file_collections');
+      this.db.exec('DELETE FROM collections');
+      this.db.exec('DELETE FROM sessions');
+      this.db.exec('DELETE FROM context_cache');
+      this.db.exec('DELETE FROM query_embedding_cache');
+      try { this.db.exec('DELETE FROM chunks_fts'); } catch { /* may not exist */ }
+      if (this.vssEnabled) {
+        try { this.db.exec('DELETE FROM chunks_vec'); } catch { /* may not exist */ }
+      }
+    } finally {
+      this.db.pragma('foreign_keys = ON');
+    }
+  }
+
+  getAllCollections(): { name: string; createdAt: number }[] {
+    return this.db.prepare('SELECT name, created_at as createdAt FROM collections').all() as any[];
+  }
+
+  getAllFileCollectionMappings(): { filePath: string; collectionName: string }[] {
+    return this.db.prepare(`
+      SELECT f.path as filePath, c.name as collectionName
+      FROM file_collections fc JOIN files f ON fc.file_id = f.id JOIN collections c ON fc.collection_id = c.id
+    `).all() as any[];
+  }
+
+  getAllContextCacheEntries(): { hash: string; prefix: string; createdAt: number }[] {
+    return this.db.prepare('SELECT doc_chunk_hash as hash, context_prefix as prefix, created_at as createdAt FROM context_cache').all() as any[];
+  }
+
+  getAllChunksForExport(): Array<{filePath: string; chunkIndex: number; content: string; lineStart: number; lineEnd: number; observationType: string|null; concepts: string|null; filesReferenced: string|null; sessionId: string|null; contentHash: string|null; contextPrefix: string|null}> {
+    return this.db.prepare(`
+      SELECT f.path as filePath, c.chunk_index as chunkIndex, c.content,
+             c.line_start as lineStart, c.line_end as lineEnd,
+             c.observation_type as observationType, c.concepts,
+             c.files_referenced as filesReferenced, c.session_id as sessionId,
+             c.content_hash as contentHash, c.context_prefix as contextPrefix
+      FROM chunks c JOIN files f ON c.file_id = f.id ORDER BY f.path, c.chunk_index
+    `).all() as any[];
   }
 
   close(): void {

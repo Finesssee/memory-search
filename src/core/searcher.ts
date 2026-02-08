@@ -284,7 +284,7 @@ export async function search(
 
 /**
  * Semantic search using embeddings
- * Uses sqlite-vss for vector search if available, otherwise falls back to linear scan
+ * Uses sqlite-vec for vector search if available, otherwise falls back to linear scan
  */
 async function semanticSearch(
   query: string,
@@ -303,10 +303,10 @@ async function semanticSearch(
     const vssLimit = Math.min(topK * VSS_EXPAND_FACTOR, candidateCap);
     const vssResults = db.searchVss(queryEmbedding, vssLimit);
     if (vssResults.length > 0) {
-      // Convert distance to similarity score (lower distance = higher score)
+      // Convert cosine distance to similarity score (distance = 1 - similarity)
       const seeded = vssResults.map(({ chunkId, distance }) => ({
         chunkId,
-        score: 1 / (1 + distance), // Convert distance to similarity
+        score: Math.max(0, 1 - distance),
       }));
       return seeded;
     }
