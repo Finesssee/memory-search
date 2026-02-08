@@ -2,6 +2,7 @@
 
 import type { Config } from '../types.js';
 import { fetchWithRetry } from '../utils/network.js';
+import { getChatEndpoint } from '../utils/api-endpoints.js';
 
 export interface ExtractedFact {
   key: string;
@@ -144,7 +145,7 @@ async function extractWithLLM(
   namespace: string,
   config: Config
 ): Promise<ExtractedFact[]> {
-  const chatEndpoint = `${config.embeddingEndpoint.replace(/\/$/, '')}/../chat`;
+  const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
 
   const prompt = `Extract factual key-value pairs from this text. Focus on personal preferences, settings, and configurations.
 Return a JSON array of objects with "key" and "value" fields. Only include clear, factual statements.

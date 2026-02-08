@@ -69,6 +69,7 @@ export interface SearchResult {
   chunkId?: number;
   contentHash?: string;
   fullContent?: string;
+  fileMtime?: number;
   explain?: SearchExplain;
 }
 

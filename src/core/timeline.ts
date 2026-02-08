@@ -23,7 +23,7 @@ export function assembleTimeline(
   // Add search results as observations
   for (const result of searchResults) {
     entries.push({
-      timestamp: Date.now(), // Use file mtime if available
+      timestamp: result.fileMtime ?? Date.now(),
       type: 'observation',
       content: result.snippet,
       source: result.file,

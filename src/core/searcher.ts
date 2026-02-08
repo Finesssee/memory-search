@@ -256,6 +256,7 @@ export async function search(
           fullContent: chunk.content,
           chunkId: chunk.id,
           contentHash: chunk.contentHash,
+          fileMtime: chunk.fileMtime,
           explain: {
             rrfScore: ranked.rrfScore,
             rrfRank: rrfRankMap.get(ranked.chunkId),
