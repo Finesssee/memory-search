@@ -9,6 +9,7 @@ import { registerContextCommand } from './context.js';
 import { registerSessionsCommand } from './sessions.js';
 import { registerCollectionCommand } from './collection.js';
 import { registerGetCommand } from './get.js';
+import { registerConfigCommand } from './config.js';
 
 export function registerCommands(program: Command): void {
   registerSearchCommand(program);
@@ -19,4 +20,5 @@ export function registerCommands(program: Command): void {
   registerSessionsCommand(program);
   registerCollectionCommand(program);
   registerGetCommand(program);
+  registerConfigCommand(program);
 }

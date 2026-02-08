@@ -126,7 +126,8 @@ export function registerSearchCommand(program: Command): void {
             // Score is already 0-1 from reranker blending, convert to percentage
             const scorePercent = Math.round(r.score * 100);
 
-            console.log(chalk.cyan(`[${i + 1}] ${fileName}`) + chalk.gray(` (${scorePercent}%)`));
+            const scoreColor = scorePercent >= 70 ? chalk.green : scorePercent >= 40 ? chalk.yellow : chalk.red;
+            console.log(chalk.cyan(`[${i + 1}] ${fileName}`) + ` (${scoreColor(`${scorePercent}%`)})`);
             console.log(chalk.gray(`    Lines ${r.lineStart}-${r.lineEnd}`));
             console.log(chalk.gray('    ─────────────────────────────────────────────────'));
 
