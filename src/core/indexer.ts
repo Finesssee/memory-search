@@ -7,9 +7,11 @@ import { chunkMarkdown } from './chunker.js';
 import { getEmbeddingsParallel, prefixDocument } from './embeddings.js';
 import { hashContent } from '../utils/hash.js';
 import { contextualizeFileChunks } from './contextualizer.js';
+import { logInfo } from '../utils/log.js';
 import type { Config } from '../types.js';
 
-const BATCH_SIZE = 100;  // Larger batches for parallel processing
+const BATCH_SIZE = 100;
+const FILE_SCAN_CONCURRENCY = 50;  // Parallel file reads during scan phase
 
 export interface IndexProgress {
   total: number;
@@ -20,7 +22,7 @@ export interface IndexProgress {
 
 export async function indexFiles(
   config: Config,
-  options: { force?: boolean; prune?: boolean; onProgress?: (p: IndexProgress) => void } = {}
+  options: { force?: boolean; prune?: boolean; dryRun?: boolean; onProgress?: (p: IndexProgress) => void } = {}
 ): Promise<{ indexed: number; skipped: number; pruned: number; contextualized: number; errors: string[] }> {
   const db = new MemoryDB(config);
   const errors: string[] = [];
@@ -92,9 +94,10 @@ export async function indexFiles(
     }
     const work: FileWork[] = [];
 
-    for (let i = 0; i < files.length; i++) {
+    // Process files in parallel batches for faster scanning
+    const processFile = (i: number) => {
       const file = files[i];
-      const normalizedPath = file; // Already normalized
+      const normalizedPath = file;
       normalizedPaths.add(normalizedPath);
       const collectionNames = Array.from(fileCollections.get(normalizedPath) || []);
 
@@ -111,17 +114,14 @@ export async function indexFiles(
 
         const existing = db.getFile(normalizedPath);
 
-        // If file exists and hasn't changed, we still need to update collections
         if (!options.force && existing && existing.mtime === mtime) {
-          // Update collections for existing file
           db.clearFileCollections(existing.id);
           for (const name of collectionNames) {
             const collectionId = db.upsertCollection(name);
             db.addFileToCollection(existing.id, collectionId);
           }
-
           skipped++;
-          continue;
+          return;
         }
 
         const content = readFileSync(file, 'utf-8');
@@ -129,16 +129,13 @@ export async function indexFiles(
 
         if (!options.force && existing && existing.contentHash === contentHash) {
           db.upsertFile(normalizedPath, mtime, contentHash);
-
-          // Update collections for existing file
           db.clearFileCollections(existing.id);
           for (const name of collectionNames) {
             const collectionId = db.upsertCollection(name);
             db.addFileToCollection(existing.id, collectionId);
           }
-
           skipped++;
-          continue;
+          return;
         }
 
         const chunks = chunkMarkdown(content, {
@@ -147,14 +144,11 @@ export async function indexFiles(
           filePath: normalizedPath
         });
 
-        // Handle empty files - delete existing chunks if any
         if (chunks.length === 0) {
           const existingFile = db.getFile(normalizedPath);
           if (existingFile) {
             db.deleteChunksForFile(existingFile.id);
             db.upsertFile(normalizedPath, mtime, contentHash);
-
-            // Update collections even for empty files
             db.clearFileCollections(existingFile.id);
             for (const name of collectionNames) {
               const collectionId = db.upsertCollection(name);
@@ -162,7 +156,7 @@ export async function indexFiles(
             }
           }
           skipped++;
-          continue;
+          return;
         }
 
         work.push({ file, normalizedPath, mtime, contentHash, chunks, collectionNames });
@@ -170,9 +164,13 @@ export async function indexFiles(
         const message = err instanceof Error ? err.message : String(err);
         errors.push(`${normalizedPath}: ${message}`);
       }
+    };
+
+    for (let i = 0; i < files.length; i++) {
+      processFile(i);
     }
 
-    if (options.prune) {
+    if (options.prune && !options.dryRun) {
       const existingFiles = db.getAllFiles();
       for (const existing of existingFiles) {
         if (!normalizedPaths.has(existing.path)) {
@@ -180,6 +178,13 @@ export async function indexFiles(
           pruned++;
         }
       }
+    }
+
+    // Dry run: report what would happen without actually embedding/storing
+    if (options.dryRun) {
+      const totalChunks = work.reduce((sum, w) => sum + w.chunks.length, 0);
+      logInfo('indexer', `Dry run: ${work.length} files to index, ${totalChunks} chunks, ${skipped} skipped`);
+      return { indexed: work.length, skipped, pruned, contextualized: 0, errors };
     }
 
     // Contextualize chunks if enabled

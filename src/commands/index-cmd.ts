@@ -13,20 +13,24 @@ export function registerIndexCommand(program: Command): void {
     .option('--force', 'Force re-embed all files')
     .option('--prune', 'Delete indexed files that no longer exist on disk')
     .option('--contextualize', 'Generate LLM context for chunks (improves retrieval)')
-    .action(async (options: { force?: boolean; prune?: boolean; contextualize?: boolean }) => {
+    .option('--dry-run', 'Show what would be indexed without making changes')
+    .action(async (options: { force?: boolean; prune?: boolean; contextualize?: boolean; dryRun?: boolean }) => {
       const config = loadConfig();
 
-      // Check if embedding server is running
-      const serverOk = await checkEmbeddingServer(config);
-      if (!serverOk) {
-        console.error(chalk.red(`Error: Cannot connect to embedding server at ${config.embeddingEndpoint}`));
-        console.error(chalk.yellow(''));
-        console.error(chalk.yellow('Make sure your embedding server is running and accessible.'));
-        console.error(chalk.yellow('Check your config at ~/.memory-search/config.json'));
-        process.exit(1);
+      if (!options.dryRun) {
+        const serverOk = await checkEmbeddingServer(config);
+        if (!serverOk) {
+          console.error(chalk.red(`Error: Cannot connect to embedding server at ${config.embeddingEndpoint}`));
+          console.error(chalk.yellow(''));
+          console.error(chalk.yellow('Make sure your embedding server is running and accessible.'));
+          console.error(chalk.yellow('Check your config at ~/.memory-search/config.json'));
+          console.error(chalk.yellow('Run "memory doctor" to diagnose issues.'));
+          process.exit(1);
+        }
       }
 
-      console.log(chalk.blue('Indexing files...'));
+      const label = options.dryRun ? 'Scanning files (dry run)...' : 'Indexing files...';
+      console.log(chalk.blue(label));
       if (options.contextualize) {
         config.contextualizeChunks = true;
       }
@@ -38,6 +42,7 @@ export function registerIndexCommand(program: Command): void {
       const result = await indexFiles(config, {
         force: options.force,
         prune: options.prune,
+        dryRun: options.dryRun,
         onProgress: (p) => {
           process.stdout.write(
             `\r${chalk.cyan(`[${p.processed}/${p.total}]`)} ${p.file.slice(-50).padEnd(50)}`
@@ -48,7 +53,11 @@ export function registerIndexCommand(program: Command): void {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
 
       console.log('\n');
-      console.log(chalk.green(`✓ Indexed ${result.indexed} files`));
+      if (options.dryRun) {
+        console.log(chalk.yellow(`[DRY RUN] Would index ${result.indexed} files`));
+      } else {
+        console.log(chalk.green(`Done. Indexed ${result.indexed} files`));
+      }
       console.log(chalk.gray(`  Skipped: ${result.skipped} (unchanged)`));
       if (options.prune) {
         console.log(chalk.gray(`  Pruned: ${result.pruned} (missing on disk)`));
@@ -59,7 +68,7 @@ export function registerIndexCommand(program: Command): void {
       console.log(chalk.gray(`  Time: ${elapsed}s`));
 
       if (result.errors.length > 0) {
-        console.log(chalk.yellow(`\n⚠ Errors (${result.errors.length}):`));
+        console.log(chalk.yellow(`\nErrors (${result.errors.length}):`));
         for (const err of result.errors.slice(0, 5)) {
           console.log(chalk.red(`  - ${err}`));
         }
