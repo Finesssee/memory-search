@@ -12,6 +12,8 @@ import { registerGetCommand } from './get.js';
 import { registerConfigCommand } from './config.js';
 import { registerCacheCommand } from './cache.js';
 import { registerDoctorCommand } from './doctor.js';
+import { registerExportCommand } from './export.js';
+import { registerImportCommand } from './import.js';
 
 export function registerCommands(program: Command): void {
   registerSearchCommand(program);
@@ -25,4 +27,6 @@ export function registerCommands(program: Command): void {
   registerConfigCommand(program);
   registerCacheCommand(program);
   registerDoctorCommand(program);
+  registerExportCommand(program);
+  registerImportCommand(program);
 }
