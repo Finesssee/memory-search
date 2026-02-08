@@ -3,6 +3,7 @@
 import type { Config, ExpandedQuery, ExpandedQueries } from '../types.js';
 import { fetchWithRetry } from '../utils/network.js';
 import { LruCache } from '../utils/lru.js';
+import { getChatEndpoint, getExpandEndpoint } from '../utils/api-endpoints.js';
 
 // LRU cache for query expansion results (max 200 entries)
 const expansionCache = new LruCache<string, ExpandedQueries>(200);
@@ -90,8 +91,7 @@ interface ChatResponse {
  * The hypothetical answer is embedded and used for semantic search.
  */
 export async function generateHyDE(query: string, config: Config): Promise<string> {
-  const baseEndpoint = config.embeddingEndpoint.replace(/\/$/, '');
-  const chatEndpoint = baseEndpoint + '/chat';
+  const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
 
   const prompt = `Answer this question in 2-3 sentences as if you know the answer:
 Question: ${query}
@@ -142,8 +142,7 @@ export async function expandQueryStructured(
   const cached = expansionCache.get(cacheKey);
   if (cached) return cached;
 
-  const baseEndpoint = config.embeddingEndpoint.replace(/\/$/, '');
-  const chatEndpoint = baseEndpoint + '/chat';
+  const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
 
   let contextBlock = '';
   if (contextHints.length > 0) {
@@ -251,11 +250,9 @@ export async function expandQuery(
   query: string,
   config: Config
 ): Promise<ExpandedQuery> {
-  const baseEndpoint = config.embeddingEndpoint.replace(/\/$/, '');
-
   // Try dedicated /expand endpoint first
   try {
-    const expandEndpoint = baseEndpoint + '/expand';
+    const expandEndpoint = getExpandEndpoint(config.embeddingEndpoint);
     const response = await fetchWithRetry(expandEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -277,7 +274,7 @@ export async function expandQuery(
 
   // Fallback to /chat endpoint
   try {
-    const chatEndpoint = baseEndpoint + '/chat';
+    const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
     const prompt = `Generate 2-3 alternative search queries for: "${query}". Return only the queries, one per line, no numbering or explanations.`;
 
     const response = await fetchWithRetry(chatEndpoint, {
