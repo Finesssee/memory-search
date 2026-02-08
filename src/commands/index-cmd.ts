@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { indexFiles } from '../core/indexer.js';
 import { checkEmbeddingServer } from '../core/embeddings.js';
 import { loadConfig } from '../utils/config.js';
+import { ProgressDisplay } from '../utils/progress.js';
 
 export function registerIndexCommand(program: Command): void {
   program
@@ -37,22 +38,27 @@ export function registerIndexCommand(program: Command): void {
       const sourceCount = (config.sources?.length || 0) + (config.collections?.length || 0);
       console.log(chalk.gray(`Sources: ${sourceCount} configured`));
 
-      const startTime = Date.now();
+      const progress = new ProgressDisplay();
 
       const result = await indexFiles(config, {
         force: options.force,
         prune: options.prune,
         dryRun: options.dryRun,
         onProgress: (p) => {
-          process.stdout.write(
-            `\r${chalk.cyan(`[${p.processed}/${p.total}]`)} ${p.file.slice(-50).padEnd(50)}`
-          );
+          progress.update('scan', p.processed, p.total, p.file.slice(-50));
+        },
+        onContextProgress: (current, total) => {
+          progress.update('ctx', current, total);
+        },
+        onEmbedProgress: (current, total) => {
+          progress.update('embed', current, total);
         },
       });
 
-      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      const elapsed = progress.formatElapsed();
+      progress.clear();
 
-      console.log('\n');
+      console.log('');
       if (options.dryRun) {
         console.log(chalk.yellow(`[DRY RUN] Would index ${result.indexed} files`));
       } else {
@@ -65,7 +71,7 @@ export function registerIndexCommand(program: Command): void {
       if (options.contextualize && result.contextualized > 0) {
         console.log(chalk.gray(`  Contextualized: ${result.contextualized} chunks`));
       }
-      console.log(chalk.gray(`  Time: ${elapsed}s`));
+      console.log(chalk.gray(`  Time: ${elapsed}`));
 
       if (result.errors.length > 0) {
         console.log(chalk.yellow(`\nErrors (${result.errors.length}):`));

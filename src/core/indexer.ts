@@ -23,7 +23,7 @@ export interface IndexProgress {
 
 export async function indexFiles(
   config: Config,
-  options: { force?: boolean; prune?: boolean; dryRun?: boolean; onProgress?: (p: IndexProgress) => void } = {}
+  options: { force?: boolean; prune?: boolean; dryRun?: boolean; onProgress?: (p: IndexProgress) => void; onContextProgress?: (current: number, total: number) => void; onEmbedProgress?: (current: number, total: number) => void } = {}
 ): Promise<{ indexed: number; skipped: number; pruned: number; contextualized: number; errors: string[] }> {
   const db = new MemoryDB(config);
   const errors: string[] = [];
@@ -195,9 +195,8 @@ export async function indexFiles(
     // Contextualize chunks if enabled
     const contextPrefixes = new Map<FileWork, string[]>();
     if (config.contextualizeChunks) {
-      console.log(`Contextualizing ${work.length} files...`);
+      options.onContextProgress?.(0, work.length);
       const FILE_CONCURRENCY = 20;
-      let fileIdx = 0;
       let filesDone = 0;
       const fileWaiters: (() => void)[] = [];
       let fileRunning = 0;
@@ -223,9 +222,7 @@ export async function indexFiles(
             );
             contextPrefixes.set(w, prefixes);
             filesDone++;
-            if (filesDone % 50 === 0) {
-              process.stderr.write(`\r[files] ${filesDone}/${work.length} contextualized   `);
-            }
+            options.onContextProgress?.(filesDone, work.length);
           } finally {
             fileRunning--;
             const waiter = fileWaiters.shift();
@@ -234,9 +231,6 @@ export async function indexFiles(
         })());
       }
       await Promise.all(filePromises);
-      process.stderr.write('\n');
-      const totalCtx = Array.from(contextPrefixes.values()).flat().filter(p => p.length > 0).length;
-      console.log(`  Contextualized ${totalCtx} chunks`);
     }
     contextualized = Array.from(contextPrefixes.values()).flat().filter(p => p.length > 0).length;
 
@@ -253,7 +247,7 @@ export async function indexFiles(
     }
 
     // Get all embeddings in parallel with document prefix
-    console.log(`Embedding ${allChunks.length} chunks...`);
+    options.onEmbedProgress?.(0, allChunks.length);
     const allTexts = allChunks.map(c => {
       const prefixes = contextPrefixes.get(c.work);
       const ctxPrefix = prefixes?.[c.chunkIdx] ?? '';
@@ -264,9 +258,9 @@ export async function indexFiles(
     let embeddingsSucceeded = false;
     try {
       const embeddings = await getEmbeddingsParallel(allTexts, config, (completed: number, total: number) => {
-        process.stdout.write(`\r  Batch ${completed}/${total}`);
+        options.onEmbedProgress?.(completed, total);
       });
-      console.log(''); // New line after progress
+      // Embedding phase complete
 
       if (isShutdownRequested()) {
         logInfo('indexer', 'Shutdown requested, skipping database write');
