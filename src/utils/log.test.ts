@@ -14,10 +14,11 @@ describe('errorMessage', () => {
 });
 
 describe('log functions', () => {
-  let writeSpy: ReturnType<typeof vi.spyOn>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let writeSpy: any;
 
   beforeEach(() => {
-    writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((() => true) as any);
   });
 
   afterEach(() => {
