@@ -20,18 +20,18 @@ interface SearchResultWithRank extends SearchResult {
  * Top positions trust retrieval more, lower positions get slight reranker boost.
  * Conservative weights since reranker quality varies.
  */
-function getBlendWeights(rank: number): { retrieval: number; reranker: number } {
+export function getBlendWeights(rank: number): { retrieval: number; reranker: number } {
   if (rank <= 3) return { retrieval: 0.95, reranker: 0.05 };
   if (rank <= 10) return { retrieval: 0.90, reranker: 0.10 };
   return { retrieval: 0.80, reranker: 0.20 };
 }
 
-function clamp01(value: number): number {
+export function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, value));
 }
 
-function isTrivialQuery(query: string): boolean {
+export function isTrivialQuery(query: string): boolean {
   const trimmed = query.trim();
   if (trimmed.length === 0) return true;
   if (trimmed.length < 3) return true;
@@ -42,7 +42,7 @@ function isTrivialQuery(query: string): boolean {
 // - Already normalized [0, 1] → keep as-is
 // - Cosine similarity [-1, 1] → linear scale to [0, 1]
 // - Logits (unbounded) → sigmoid to [0, 1]
-function normalizeRerankerScore(score: number): number {
+export function normalizeRerankerScore(score: number): number {
   if (!Number.isFinite(score)) return 0;
   // Already normalized
   if (score >= 0 && score <= 1) return clamp01(score);
@@ -52,7 +52,7 @@ function normalizeRerankerScore(score: number): number {
   return clamp01(1 / (1 + Math.exp(-score)));
 }
 
-function parseRerankerWeights(rawValue: string | undefined): { bge: number; qwen: number; gemma: number } {
+export function parseRerankerWeights(rawValue: string | undefined): { bge: number; qwen: number; gemma: number } {
   const defaults = { bge: 0.5, qwen: 0.3, gemma: 0.2 };
   if (!rawValue || rawValue.trim().length === 0) return defaults;
 
@@ -104,7 +104,7 @@ function parseRerankerWeights(rawValue: string | undefined): { bge: number; qwen
   };
 }
 
-function blendNormalizedScores(
+export function blendNormalizedScores(
   scores: Record<string, unknown> | undefined,
   weights: { bge: number; qwen: number; gemma: number }
 ): number | null {
@@ -133,7 +133,7 @@ function blendNormalizedScores(
   return clamp01(weightedSum / weightSum);
 }
 
-function minMaxNormalizeScores(scoresByIndex: Map<number, number>): Map<number, number> {
+export function minMaxNormalizeScores(scoresByIndex: Map<number, number>): Map<number, number> {
   const normalized = new Map<number, number>();
   if (scoresByIndex.size === 0) return normalized;
 
