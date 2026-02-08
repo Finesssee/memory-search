@@ -4,6 +4,8 @@ import type { Config, SearchResult } from '../types.js';
 import { RerankCache } from '../storage/rerank-cache.js';
 import { hashContent } from '../utils/hash.js';
 import { fetchWithRetry } from '../utils/network.js';
+import { logWarn, logError, errorMessage } from '../utils/log.js';
+import { getRerankEndpoint } from '../utils/api-endpoints.js';
 
 interface RerankResponse {
   index: number;
@@ -224,7 +226,7 @@ export async function rerankResults(
 
   if (uncachedIndices.length > 0) {
     const uncachedDocs = uncachedIndices.map(i => results[i].fullContent ?? results[i].snippet);
-    const endpoint = config.embeddingEndpoint.replace(/\/$/, '') + '/rerank';
+    const endpoint = getRerankEndpoint(config.embeddingEndpoint);
 
     const response = await fetchWithRetry(endpoint, {
       method: 'POST',
@@ -233,8 +235,7 @@ export async function rerankResults(
     });
 
     if (!response.ok) {
-      // Fall back to original order if reranking fails
-      console.error(`Rerank failed: ${response.status}`);
+      logError('reranker', `Rerank API failed`, { status: response.status, endpoint });
       cache.close();
       return results.map(({ rrfRank: _, fullContent: __, contentHash: ____, ...rest }) => rest);
     }
@@ -251,13 +252,13 @@ export async function rerankResults(
         (r as unknown as { documentIndex?: number }).documentIndex;
 
       if (!Number.isFinite(rawIndex)) {
-        console.warn('Rerank response missing index field', r);
+        logWarn('reranker', 'Rerank response item missing index field', { item: JSON.stringify(r) });
         continue;
       }
 
       const originalIndex = uncachedIndices[rawIndex as number];
       if (!Number.isFinite(originalIndex)) {
-        console.warn('Rerank index out of range', { rawIndex, total: uncachedIndices.length });
+        logWarn('reranker', 'Rerank index out of range', { rawIndex, total: uncachedIndices.length });
         continue;
       }
 

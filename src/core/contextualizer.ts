@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import { fetchWithRetry } from '../utils/network.js';
 import type { Config, ContextLlmSlot } from '../types.js';
 import type { MemoryDB } from '../storage/db.js';
+import { logDebug, logWarn, errorMessage } from '../utils/log.js';
 
 interface ChatResponse {
   response?: string;
@@ -101,7 +102,10 @@ Respond ONLY with the JSON array, no other text.`;
       body,
     }, { timeoutMs: 120000, retries: 2 });
 
-    if (!response.ok) return chunkContents.map(() => '');
+    if (!response.ok) {
+      logWarn('contextualizer', `LLM context batch failed`, { status: response.status, model: slot.model });
+      return chunkContents.map(() => '');
+    }
 
     const data = (await response.json()) as ChatResponse;
     const text = (data.choices?.[0]?.message?.content ?? data.response)?.trim();
@@ -119,7 +123,8 @@ Respond ONLY with the JSON array, no other text.`;
       if (!ctx || typeof ctx !== 'string' || ctx.length < 10 || ctx.length > 500) return '';
       return ctx.trim();
     });
-  } catch {
+  } catch (err) {
+    logWarn('contextualizer', 'Context generation failed for batch', { model: slot.model, error: errorMessage(err) });
     return chunkContents.map(() => '');
   }
 }

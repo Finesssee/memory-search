@@ -1,5 +1,7 @@
 // Network utilities with retry logic and timeout handling
 
+import { logDebug, logWarn, errorMessage } from './log.js';
+
 export interface FetchOptions {
   timeoutMs?: number;
   retries?: number;
@@ -19,9 +21,15 @@ export async function fetchWithRetry(
       const res = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timeout);
       if (res.ok) return res;
+      if (attempt < retries) {
+        logDebug('network', `Request to ${url} returned ${res.status}, retrying (${attempt + 1}/${retries})`);
+      }
       if (attempt === retries) return res;
     } catch (err) {
       clearTimeout(timeout);
+      if (attempt < retries) {
+        logWarn('network', `Request to ${url} failed, retrying (${attempt + 1}/${retries})`, { error: errorMessage(err) });
+      }
       if (attempt === retries) throw err;
     }
     const delay = backoffMs * Math.pow(2, attempt) + Math.floor(Math.random() * 50);

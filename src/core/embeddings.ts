@@ -4,6 +4,7 @@ import type { Config, EmbeddingResponse } from '../types.js';
 import { fetchWithRetry } from '../utils/network.js';
 import { LruCache } from '../utils/lru.js';
 import { MemoryDB } from '../storage/db.js';
+import { logDebug, logWarn, errorMessage } from '../utils/log.js';
 
 const BATCH_SIZE = 100;  // Cloudflare Workers AI can handle larger batches
 const PARALLEL_REQUESTS = 4;  // Fire multiple batches concurrently
@@ -33,7 +34,7 @@ export async function getEmbedding(
   const cached = queryEmbeddingCache.get(text);
   if (cached) return cached;
 
-  // Check persistent DB cache
+  // Single DB connection for cache read + optional write
   const db = new MemoryDB(config);
   try {
     const dbCached = db.getCachedQueryEmbedding(text);
@@ -41,26 +42,19 @@ export async function getEmbedding(
       queryEmbeddingCache.set(text, dbCached);
       return dbCached;
     }
+
+    // Fetch from embedding server
+    const results = await getEmbeddingsBatch([text], config);
+    const embedding = results[0];
+
+    // Cache in memory + persist to DB
+    queryEmbeddingCache.set(text, embedding);
+    db.setCachedQueryEmbedding(text, embedding);
+
+    return embedding;
   } finally {
     db.close();
   }
-
-  // Fetch from embedding server
-  const results = await getEmbeddingsBatch([text], config);
-  const embedding = results[0];
-
-  // Cache in memory
-  queryEmbeddingCache.set(text, embedding);
-
-  // Persist to DB
-  const db2 = new MemoryDB(config);
-  try {
-    db2.setCachedQueryEmbedding(text, embedding);
-  } finally {
-    db2.close();
-  }
-
-  return embedding;
 }
 
 export async function getEmbeddingsBatch(
@@ -157,7 +151,8 @@ export async function checkEmbeddingServer(config: Config): Promise<boolean> {
     if (!response.ok) return false;
     const data = await response.json() as EmbeddingResponse[];
     return Array.isArray(data) && data.length > 0 && Array.isArray(data[0]?.embedding);
-  } catch {
+  } catch (err) {
+    logDebug('embeddings', 'Embedding server health check failed', { error: errorMessage(err) });
     return false;
   }
 }

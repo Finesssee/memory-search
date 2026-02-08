@@ -4,14 +4,15 @@ import Database from 'better-sqlite3';
 import { basename } from 'node:path';
 import type { Config, FileRecord, ChunkRecord, Observation, Session } from '../types.js';
 import { hashContent } from '../utils/hash.js';
+import { logDebug, logInfo, logWarn, logError, errorMessage } from '../utils/log.js';
 
 // Try to load sqlite-vss if available
 let loadVss: ((db: Database.Database) => void) | undefined;
 try {
   const vssModule = await import('sqlite-vss');
   loadVss = vssModule.load;
-} catch {
-  // sqlite-vss not available
+} catch (err) {
+  logDebug('db', 'sqlite-vss module not available', { error: errorMessage(err) });
 }
 
 export class MemoryDB {
@@ -28,8 +29,8 @@ export class MemoryDB {
       try {
         loadVss(this.db);
         this.vssEnabled = true;
-      } catch {
-        console.error('[db] sqlite-vss not available, using linear scan');
+      } catch (err) {
+        logWarn('db', 'sqlite-vss extension failed to load, using linear scan', { error: errorMessage(err) });
         this.vssEnabled = false;
       }
     }
@@ -69,113 +70,69 @@ export class MemoryDB {
     // Create FTS5 virtual table for full-text search if it doesn't exist
     this.ensureFtsTable();
 
-    // Add observation metadata columns (safe migration - ignore if already exist)
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN observation_type TEXT');
-    } catch {
-      // Column already exists
-    }
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN concepts TEXT');
-    } catch {
-      // Column already exists
-    }
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN files_referenced TEXT');
-    } catch {
-      // Column already exists
-    }
+    // Safe migrations — ALTER TABLE fails if column exists, which is expected
+    const addColumn = (table: string, col: string, type: string) => {
+      try { this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${type}`); }
+      catch { /* column already exists */ }
+    };
+    addColumn('chunks', 'observation_type', 'TEXT');
+    addColumn('chunks', 'concepts', 'TEXT');
+    addColumn('chunks', 'files_referenced', 'TEXT');
+    addColumn('chunks', 'session_id', 'TEXT');
+    addColumn('chunks', 'content_hash', 'TEXT');
+    addColumn('chunks', 'context_prefix', 'TEXT');
 
-    // Create sessions table for session tracking
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS sessions (
-          id TEXT PRIMARY KEY,
-          started_at INTEGER NOT NULL,
-          project_path TEXT,
-          summary TEXT,
-          capture_count INTEGER DEFAULT 0
-        )
-      `);
-    } catch {
-      // Table already exists
-    }
-
-    // Create collections table for collection management
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS collections (
-          id INTEGER PRIMARY KEY,
-          name TEXT UNIQUE NOT NULL,
-          created_at INTEGER NOT NULL
-        )
-      `);
-    } catch {
-      // Table already exists
-    }
-
-    // Create file_collections mapping table
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS file_collections (
-          file_id INTEGER NOT NULL,
-          collection_id INTEGER NOT NULL,
-          PRIMARY KEY (file_id, collection_id),
-          FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
-          FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
-        )
-      `);
-    } catch {
-      // Table already exists
-    }
-
-    // Add session_id column to chunks
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN session_id TEXT');
-    } catch {
-      // Column already exists
-    }
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_session ON chunks(session_id)');
 
-    // Add content_hash column to chunks
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN content_hash TEXT');
-    } catch {
-      // Column already exists
-    }
+    // Create tables — IF NOT EXISTS handles idempotency; catch logs unexpected errors
+    const safeExec = (label: string, sql: string) => {
+      try { this.db.exec(sql); }
+      catch (err) { logWarn('db', `Migration "${label}" failed`, { error: errorMessage(err) }); }
+    };
 
-    // Add context_prefix column to chunks
-    try {
-      this.db.exec('ALTER TABLE chunks ADD COLUMN context_prefix TEXT');
-    } catch {
-      // Column already exists
-    }
+    safeExec('sessions', `
+      CREATE TABLE IF NOT EXISTS sessions (
+        id TEXT PRIMARY KEY,
+        started_at INTEGER NOT NULL,
+        project_path TEXT,
+        summary TEXT,
+        capture_count INTEGER DEFAULT 0
+      )
+    `);
 
-    // Persistent query embedding cache
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS query_embedding_cache (
-          query_text TEXT PRIMARY KEY,
-          embedding BLOB NOT NULL,
-          created_at INTEGER NOT NULL
-        )
-      `);
-    } catch {
-      // Table already exists
-    }
+    safeExec('collections', `
+      CREATE TABLE IF NOT EXISTS collections (
+        id INTEGER PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
 
-    // Context cache for contextual retrieval
-    try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS context_cache (
-          doc_chunk_hash TEXT PRIMARY KEY,
-          context_prefix TEXT NOT NULL,
-          created_at INTEGER NOT NULL
-        )
-      `);
-    } catch {
-      // Table already exists
-    }
+    safeExec('file_collections', `
+      CREATE TABLE IF NOT EXISTS file_collections (
+        file_id INTEGER NOT NULL,
+        collection_id INTEGER NOT NULL,
+        PRIMARY KEY (file_id, collection_id),
+        FOREIGN KEY (file_id) REFERENCES files(id) ON DELETE CASCADE,
+        FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE
+      )
+    `);
+
+    safeExec('query_embedding_cache', `
+      CREATE TABLE IF NOT EXISTS query_embedding_cache (
+        query_text TEXT PRIMARY KEY,
+        embedding BLOB NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    safeExec('context_cache', `
+      CREATE TABLE IF NOT EXISTS context_cache (
+        doc_chunk_hash TEXT PRIMARY KEY,
+        context_prefix TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
 
     // Enable foreign key support
     this.db.pragma('foreign_keys = ON');
@@ -184,7 +141,8 @@ export class MemoryDB {
     if (this.vssEnabled) {
       try {
         this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vss USING vss0(embedding(${this.dimensions}))`);
-      } catch {
+      } catch (err) {
+        logWarn('db', 'Failed to create VSS virtual table', { error: errorMessage(err) });
         this.vssEnabled = false;
       }
     }
@@ -241,6 +199,7 @@ export class MemoryDB {
       const missing = required.some(col => !columnNames.has(col));
 
       if (missing) {
+        logInfo('db', 'FTS table schema outdated, rebuilding');
         this.db.exec('DROP TABLE IF EXISTS chunks_fts');
         this.db.exec(`
           CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
@@ -254,8 +213,8 @@ export class MemoryDB {
         `);
         this.rebuildFTS();
       }
-    } catch {
-      // FTS5 might not be available or already exists differently
+    } catch (err) {
+      logWarn('db', 'FTS5 setup failed — full-text search may be unavailable', { error: errorMessage(err) });
     }
   }
 
@@ -392,16 +351,16 @@ export class MemoryDB {
         INSERT INTO chunks_fts (rowid, content, filename, path_tokens, headings)
         VALUES (?, ?, ?, ?, ?)
       `).run(result.lastInsertRowid, ftsContent, filename, pathTokens, headings);
-    } catch {
-      // FTS5 might not be available
+    } catch (err) {
+      logWarn('db', 'FTS5 insert failed for chunk', { chunkIndex, error: errorMessage(err) });
     }
 
     // Also insert into VSS index if enabled
     if (this.vssEnabled) {
       try {
         this.db.prepare('INSERT INTO chunks_vss (rowid, embedding) VALUES (?, ?)').run(result.lastInsertRowid, embeddingBuffer);
-      } catch {
-        // VSS insert failed
+      } catch (err) {
+        logWarn('db', 'VSS insert failed for chunk', { chunkIndex, error: errorMessage(err) });
       }
     }
   }
@@ -416,8 +375,8 @@ export class MemoryDB {
       try {
         const placeholders = ids.map(() => '?').join(',');
         this.db.prepare(`DELETE FROM chunks_vss WHERE rowid IN (${placeholders})`).run(...ids);
-      } catch {
-        // VSS might not be available
+      } catch (err) {
+        logWarn('db', 'VSS delete failed', { fileId, count: ids.length, error: errorMessage(err) });
       }
     }
 
@@ -426,8 +385,8 @@ export class MemoryDB {
       try {
         const placeholders = ids.map(() => '?').join(',');
         this.db.prepare(`DELETE FROM chunks_fts WHERE rowid IN (${placeholders})`).run(...ids);
-      } catch {
-        // FTS5 might not be available
+      } catch (err) {
+        logWarn('db', 'FTS5 delete failed', { fileId, count: ids.length, error: errorMessage(err) });
       }
     }
 
@@ -468,8 +427,8 @@ export class MemoryDB {
       `).all(ftsQuery, limit) as { rowid: number; rank: number }[];
 
       return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
-    } catch {
-      // FTS5 might not be available
+    } catch (err) {
+      logWarn('db', 'FTS5 search failed', { query, error: errorMessage(err) });
       return [];
     }
   }
@@ -477,12 +436,12 @@ export class MemoryDB {
   /**
    * Get chunks by their IDs
    */
-  getChunksByIds(ids: number[]): (ChunkRecord & { filePath: string })[] {
+  getChunksByIds(ids: number[]): (ChunkRecord & { filePath: string; fileMtime?: number })[] {
     if (ids.length === 0) return [];
 
     const placeholders = ids.map(() => '?').join(',');
     const rows = this.db.prepare(`
-      SELECT c.*, f.path as file_path
+      SELECT c.*, f.path as file_path, f.mtime as file_mtime
       FROM chunks c
       JOIN files f ON c.file_id = f.id
       WHERE c.id IN (${placeholders})
@@ -496,6 +455,7 @@ export class MemoryDB {
       embedding: Buffer;
       file_path: string;
       content_hash: string | null;
+      file_mtime: number;
     }>;
 
     return rows.map((row) => ({
@@ -508,6 +468,7 @@ export class MemoryDB {
       embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
       filePath: row.file_path,
       contentHash: row.content_hash ?? hashContent(row.content),
+      fileMtime: row.file_mtime,
     }));
   }
 
@@ -585,7 +546,6 @@ export class MemoryDB {
    */
   rebuildFTS(): void {
     try {
-      // Clear and rebuild
       this.db.exec('DELETE FROM chunks_fts');
       const rows = this.db.prepare(`
         SELECT c.id, c.content, c.context_prefix, f.path as file_path
@@ -607,8 +567,9 @@ export class MemoryDB {
           insertStmt.run(row.id, ftsContent, filename, pathTokens, headings);
         }
       });
-    } catch {
-      // FTS5 might not be available
+      logInfo('db', `FTS index rebuilt with ${rows.length} chunks`);
+    } catch (err) {
+      logError('db', 'FTS rebuild failed', { error: errorMessage(err) });
     }
   }
 
@@ -778,7 +739,8 @@ export class MemoryDB {
       `).all(embeddingBuffer, limit) as { rowid: number; distance: number }[];
 
       return rows.map(row => ({ chunkId: row.rowid, distance: row.distance }));
-    } catch {
+    } catch (err) {
+      logWarn('db', 'VSS search failed', { error: errorMessage(err) });
       return [];
     }
   }
@@ -792,10 +754,7 @@ export class MemoryDB {
     }
 
     try {
-      // Clear existing VSS data
       this.db.exec('DELETE FROM chunks_vss');
-
-      // Re-insert all embeddings
       const chunks = this.db.prepare('SELECT id, embedding FROM chunks').all() as { id: number; embedding: Buffer }[];
       const insertStmt = this.db.prepare('INSERT INTO chunks_vss (rowid, embedding) VALUES (?, ?)');
 
@@ -804,8 +763,9 @@ export class MemoryDB {
           insertStmt.run(chunk.id, chunk.embedding);
         }
       });
-    } catch {
-      // VSS rebuild failed
+      logInfo('db', `VSS index rebuilt with ${chunks.length} chunks`);
+    } catch (err) {
+      logError('db', 'VSS rebuild failed', { error: errorMessage(err) });
     }
   }
 
@@ -831,6 +791,18 @@ export class MemoryDB {
 
   setCachedContext(hash: string, prefix: string): void {
     this.db.prepare('INSERT OR REPLACE INTO context_cache (doc_chunk_hash, context_prefix, created_at) VALUES (?, ?, ?)').run(hash, prefix, Date.now());
+  }
+
+  pruneQueryEmbeddingCache(maxAgeDays: number): number {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000;
+    const result = this.db.prepare('DELETE FROM query_embedding_cache WHERE created_at < ?').run(cutoff);
+    return result.changes;
+  }
+
+  pruneContextCache(maxAgeDays: number): number {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000;
+    const result = this.db.prepare('DELETE FROM context_cache WHERE created_at < ?').run(cutoff);
+    return result.changes;
   }
 
   close(): void {
