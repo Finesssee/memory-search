@@ -6,6 +6,7 @@ import { search } from '../core/searcher.js';
 import { MemoryDB } from '../storage/db.js';
 import { checkEmbeddingServer } from '../core/embeddings.js';
 import { loadConfig } from '../utils/config.js';
+import { parseDate } from '../utils/date-parse.js';
 import { basename } from 'node:path';
 
 export function registerSearchCommand(program: Command): void {
@@ -19,6 +20,9 @@ export function registerSearchCommand(program: Command): void {
     .option('--collection <name>', 'Filter by collection')
     .option('--compact', 'Compact output for LLM consumption')
     .option('--timeline <chunkId>', 'Show timeline context around a chunk')
+    .option('--after <date>', 'Filter results modified after date (e.g. 7d, 2w, 2025-01-15)')
+    .option('--before <date>', 'Filter results modified before date (e.g. 30d, 2025-06-01)')
+    .option('--path <pattern>', 'Filter results by file path substring or glob')
     .action(async (query: string, options: {
       limit: string;
       format: string;
@@ -27,6 +31,9 @@ export function registerSearchCommand(program: Command): void {
       collection?: string;
       compact?: boolean;
       timeline?: string;
+      after?: string;
+      before?: string;
+      path?: string;
     }) => {
       // Validate inputs
       const limit = parseInt(options.limit, 10);
@@ -48,6 +55,14 @@ export function registerSearchCommand(program: Command): void {
       }
       if (!query.trim()) {
         console.error(chalk.red('Error: search query cannot be empty'));
+        process.exit(1);
+      }
+      if (options.after && parseDate(options.after) === null) {
+        console.error(chalk.red('Error: --after must be a relative duration (e.g. 7d, 2w, 1m) or ISO date (2025-01-15)'));
+        process.exit(1);
+      }
+      if (options.before && parseDate(options.before) === null) {
+        console.error(chalk.red('Error: --before must be a relative duration (e.g. 7d, 2w, 1m) or ISO date (2025-01-15)'));
         process.exit(1);
       }
 
@@ -123,6 +138,21 @@ export function registerSearchCommand(program: Command): void {
         if (options.collection) {
           const collectionFiles = new Set(db.getFilesByCollection(options.collection).map(f => f.path));
           filteredResults = results.filter(r => collectionFiles.has(r.file));
+        }
+
+        // Filter by date range
+        if (options.after) {
+          const afterTs = parseDate(options.after)!;
+          filteredResults = filteredResults.filter(r => (r.fileMtime ?? 0) > afterTs);
+        }
+        if (options.before) {
+          const beforeTs = parseDate(options.before)!;
+          filteredResults = filteredResults.filter(r => (r.fileMtime ?? Infinity) < beforeTs);
+        }
+
+        // Filter by path
+        if (options.path) {
+          filteredResults = filteredResults.filter(r => matchesPathFilter(r.file, options.path!));
         }
 
         db.close();
@@ -204,4 +234,22 @@ export function registerSearchCommand(program: Command): void {
         process.exit(1);
       }
     });
+}
+
+function matchesPathFilter(filePath: string, pattern: string): boolean {
+  const normalized = filePath.replace(/\\/g, '/');
+  const normalizedPattern = pattern.replace(/\\/g, '/');
+
+  // If pattern has no glob chars, do substring match
+  if (!normalizedPattern.includes('*') && !normalizedPattern.includes('?')) {
+    return normalized.includes(normalizedPattern);
+  }
+
+  // Convert glob to regex: * -> .*, ? -> .
+  const escaped = normalizedPattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*/g, '.*')
+    .replace(/\?/g, '.');
+  const re = new RegExp(escaped, 'i');
+  return re.test(normalized);
 }
