@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { applyEnvOverrides, maskSecrets, ENV_OVERRIDES } from './config.js';
+import { applyEnvOverrides, maskSecrets, ENV_OVERRIDES, validateConfig, KNOWN_KEYS } from './config.js';
 import type { Config, ContextLlmSlot } from '../types.js';
 
 function baseConfig(): Config {
@@ -166,5 +166,95 @@ describe('ENV_OVERRIDES', () => {
     expect(ENV_OVERRIDES['MEMORY_LLM_ENDPOINT']).toBe('contextLlmEndpoint');
     expect(ENV_OVERRIDES['MEMORY_LLM_API_KEY']).toBe('contextLlmApiKey');
     expect(ENV_OVERRIDES['MEMORY_LLM_MODEL']).toBe('contextLlmModel');
+  });
+});
+
+describe('validateConfig', () => {
+  it('passes through valid config with no warnings', () => {
+    const raw = {
+      indexPath: '/tmp/index.db',
+      embeddingEndpoint: 'http://localhost:8080/embedding',
+      embeddingDimensions: 768,
+      chunkMaxTokens: 1000,
+      chunkOverlapTokens: 150,
+      searchTopK: 15,
+    };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(0);
+    expect(config).toEqual(raw);
+  });
+
+  it('warns on unknown keys and removes them', () => {
+    const raw = {
+      indexPath: '/tmp/index.db',
+      bogusKey: 'hello',
+      anotherBad: 42,
+    };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('bogusKey');
+    expect(warnings[1]).toContain('anotherBad');
+    expect((config as unknown as Record<string, unknown>).bogusKey).toBeUndefined();
+    expect((config as unknown as Record<string, unknown>).anotherBad).toBeUndefined();
+  });
+
+  it('warns when string field has wrong type', () => {
+    const raw = { indexPath: 123 };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('indexPath');
+    expect(warnings[0]).toContain('string');
+    expect((config as unknown as Record<string, unknown>).indexPath).toBeUndefined();
+  });
+
+  it('warns when boolean field has wrong type', () => {
+    const raw = { expandQueries: 'yes' };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('expandQueries');
+    expect(warnings[0]).toContain('boolean');
+  });
+
+  it('warns when array field has wrong type', () => {
+    const raw = { sources: 'not-an-array' };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('sources');
+    expect(warnings[0]).toContain('array');
+  });
+
+  it('warns when numeric value is out of range', () => {
+    const raw = { embeddingDimensions: 99999, searchTopK: 0 };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('embeddingDimensions');
+    expect(warnings[0]).toContain('out of range');
+    expect(warnings[1]).toContain('searchTopK');
+    expect((config as unknown as Record<string, unknown>).embeddingDimensions).toBeUndefined();
+    expect((config as unknown as Record<string, unknown>).searchTopK).toBeUndefined();
+  });
+
+  it('warns when numeric field is not a finite number', () => {
+    const raw = { chunkMaxTokens: 'five hundred' };
+    const { config, warnings } = validateConfig(raw);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('chunkMaxTokens');
+    expect(warnings[0]).toContain('finite number');
+  });
+
+  it('KNOWN_KEYS covers all Config interface fields', () => {
+    // All keys from a fully-populated Config should be in KNOWN_KEYS
+    const allKeys = [
+      'sources', 'collections', 'ignorePaths', 'indexPath',
+      'embeddingEndpoint', 'embeddingDimensions', 'chunkMaxTokens',
+      'chunkOverlapTokens', 'searchTopK', 'searchCandidateCap',
+      'expandQueries', 'pathContexts', 'contextualizeChunks',
+      'contextParallelism', 'contextMaxDocTokens',
+      'contextLlmEndpoint', 'contextLlmModel', 'contextLlmApiKey',
+      'contextLlmEndpoints',
+    ];
+    for (const key of allKeys) {
+      expect(KNOWN_KEYS.has(key)).toBe(true);
+    }
   });
 });
