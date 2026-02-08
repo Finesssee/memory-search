@@ -10,6 +10,7 @@ import { registerSessionsCommand } from './sessions.js';
 import { registerCollectionCommand } from './collection.js';
 import { registerGetCommand } from './get.js';
 import { registerConfigCommand } from './config.js';
+import { registerCacheCommand } from './cache.js';
 
 export function registerCommands(program: Command): void {
   registerSearchCommand(program);
@@ -21,4 +22,5 @@ export function registerCommands(program: Command): void {
   registerCollectionCommand(program);
   registerGetCommand(program);
   registerConfigCommand(program);
+  registerCacheCommand(program);
 }

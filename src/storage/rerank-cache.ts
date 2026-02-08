@@ -38,6 +38,12 @@ export class RerankCache {
     `).run(queryHash, docHash, model, score, Date.now());
   }
 
+  prune(maxAgeDays: number): number {
+    const cutoff = Date.now() - maxAgeDays * 86_400_000;
+    const result = this.db.prepare('DELETE FROM rerank_cache WHERE created_at < ?').run(cutoff);
+    return result.changes;
+  }
+
   close(): void {
     this.db.close();
   }
