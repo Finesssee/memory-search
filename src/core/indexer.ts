@@ -6,6 +6,7 @@ import { MemoryDB } from '../storage/db.js';
 import { chunkMarkdown } from './chunker.js';
 import { getEmbeddingsParallel, prefixDocument } from './embeddings.js';
 import { hashContent } from '../utils/hash.js';
+import { contextualizeFileChunks } from './contextualizer.js';
 import type { Config } from '../types.js';
 
 const BATCH_SIZE = 100;  // Larger batches for parallel processing
@@ -20,12 +21,13 @@ export interface IndexProgress {
 export async function indexFiles(
   config: Config,
   options: { force?: boolean; prune?: boolean; onProgress?: (p: IndexProgress) => void } = {}
-): Promise<{ indexed: number; skipped: number; pruned: number; errors: string[] }> {
+): Promise<{ indexed: number; skipped: number; pruned: number; contextualized: number; errors: string[] }> {
   const db = new MemoryDB(config);
   const errors: string[] = [];
   let indexed = 0;
   let skipped = 0;
   let pruned = 0;
+  let contextualized = 0;
 
   try {
     // Normalize config to collections
@@ -50,7 +52,7 @@ export async function indexFiles(
 
     // Ensure we have something to index
     if (collections.length === 0) {
-      return { indexed: 0, skipped: 0, pruned: 0, errors: [] };
+      return { indexed: 0, skipped: 0, pruned: 0, contextualized: 0, errors: [] };
     }
 
     // Find all markdown files in all collections
@@ -180,6 +182,50 @@ export async function indexFiles(
       }
     }
 
+    // Contextualize chunks if enabled
+    const contextPrefixes = new Map<FileWork, string[]>();
+    if (config.contextualizeChunks) {
+      console.log(`Contextualizing ${work.length} files...`);
+      const FILE_CONCURRENCY = 20;
+      let fileIdx = 0;
+      let filesDone = 0;
+      const fileWaiters: (() => void)[] = [];
+      let fileRunning = 0;
+      const filePromises: Promise<void>[] = [];
+
+      for (const w of work) {
+        if (fileRunning >= FILE_CONCURRENCY) {
+          await new Promise<void>(r => fileWaiters.push(r));
+        }
+        fileRunning++;
+        filePromises.push((async () => {
+          try {
+            const docContent = readFileSync(w.file, 'utf-8');
+            const prefixes = await contextualizeFileChunks(
+              docContent,
+              w.chunks,
+              db,
+              config
+            );
+            contextPrefixes.set(w, prefixes);
+            filesDone++;
+            if (filesDone % 50 === 0) {
+              process.stderr.write(`\r[files] ${filesDone}/${work.length} contextualized   `);
+            }
+          } finally {
+            fileRunning--;
+            const waiter = fileWaiters.shift();
+            if (waiter) waiter();
+          }
+        })());
+      }
+      await Promise.all(filePromises);
+      process.stderr.write('\n');
+      const totalCtx = Array.from(contextPrefixes.values()).flat().filter(p => p.length > 0).length;
+      console.log(`  Contextualized ${totalCtx} chunks`);
+    }
+    contextualized = Array.from(contextPrefixes.values()).flat().filter(p => p.length > 0).length;
+
     // Now embed all chunks at once with parallel processing
     const allChunks: { work: FileWork; chunkIdx: number; content: string }[] = [];
     for (const w of work) {
@@ -189,12 +235,17 @@ export async function indexFiles(
     }
 
     if (allChunks.length === 0) {
-      return { indexed: 0, skipped, pruned, errors };
+      return { indexed: 0, skipped, pruned, contextualized, errors };
     }
 
     // Get all embeddings in parallel with document prefix
     console.log(`Embedding ${allChunks.length} chunks...`);
-    const allTexts = allChunks.map(c => prefixDocument(c.content));
+    const allTexts = allChunks.map(c => {
+      const prefixes = contextPrefixes.get(c.work);
+      const ctxPrefix = prefixes?.[c.chunkIdx] ?? '';
+      const text = ctxPrefix ? ctxPrefix + '\n\n' + c.content : c.content;
+      return prefixDocument(text);
+    });
 
     let embeddingsSucceeded = false;
     try {
@@ -225,6 +276,8 @@ export async function indexFiles(
           }
 
           const fileId = (w as FileWork & { fileId: number }).fileId;
+          const prefixes = contextPrefixes.get(w);
+          const ctxPrefix = prefixes?.[chunkIdx] ?? '';
           db.insertChunk(
             fileId,
             chunkIdx,
@@ -234,7 +287,8 @@ export async function indexFiles(
             embeddings[i],
             undefined,
             undefined,
-            { filePath: w.normalizedPath, headings: chunk.headings }
+            { filePath: w.normalizedPath, headings: chunk.headings },
+            ctxPrefix || undefined
           );
         }
       });
@@ -247,7 +301,7 @@ export async function indexFiles(
 
     indexed = embeddingsSucceeded ? work.length : 0;
 
-    return { indexed, skipped, pruned, errors };
+    return { indexed, skipped, pruned, contextualized, errors };
   } finally {
     db.close();
   }

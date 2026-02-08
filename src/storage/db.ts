@@ -144,12 +144,32 @@ export class MemoryDB {
       // Column already exists
     }
 
+    // Add context_prefix column to chunks
+    try {
+      this.db.exec('ALTER TABLE chunks ADD COLUMN context_prefix TEXT');
+    } catch {
+      // Column already exists
+    }
+
     // Persistent query embedding cache
     try {
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS query_embedding_cache (
           query_text TEXT PRIMARY KEY,
           embedding BLOB NOT NULL,
+          created_at INTEGER NOT NULL
+        )
+      `);
+    } catch {
+      // Table already exists
+    }
+
+    // Context cache for contextual retrieval
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS context_cache (
+          doc_chunk_hash TEXT PRIMARY KEY,
+          context_prefix TEXT NOT NULL,
           created_at INTEGER NOT NULL
         )
       `);
@@ -342,7 +362,8 @@ export class MemoryDB {
     embedding: Float32Array,
     observation?: Observation,
     sessionId?: string,
-    ftsMeta?: { filePath?: string; headings?: string[] }
+    ftsMeta?: { filePath?: string; headings?: string[] },
+    contextPrefix?: string
   ): void {
     const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const contentHash = hashContent(content);
@@ -353,9 +374,9 @@ export class MemoryDB {
     const filesReferenced = observation?.files?.length ? JSON.stringify(observation.files) : null;
 
     const result = this.db.prepare(`
-      INSERT INTO chunks (file_id, chunk_index, content, line_start, line_end, embedding, observation_type, concepts, files_referenced, session_id, content_hash)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(fileId, chunkIndex, content, lineStart, lineEnd, embeddingBuffer, observationType, concepts, filesReferenced, sessionId ?? null, contentHash);
+      INSERT INTO chunks (file_id, chunk_index, content, line_start, line_end, embedding, observation_type, concepts, files_referenced, session_id, content_hash, context_prefix)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(fileId, chunkIndex, content, lineStart, lineEnd, embeddingBuffer, observationType, concepts, filesReferenced, sessionId ?? null, contentHash, contextPrefix ?? null);
 
     // Also insert into FTS5 index
     try {
@@ -365,11 +386,12 @@ export class MemoryDB {
       const headings = ftsMeta?.headings?.length
         ? ftsMeta.headings.join(' ')
         : this.extractHeadingsFromContent(content);
+      const ftsContent = contextPrefix ? contextPrefix + '\n\n' + content : content;
 
       this.db.prepare(`
         INSERT INTO chunks_fts (rowid, content, filename, path_tokens, headings)
         VALUES (?, ?, ?, ?, ?)
-      `).run(result.lastInsertRowid, content, filename, pathTokens, headings);
+      `).run(result.lastInsertRowid, ftsContent, filename, pathTokens, headings);
     } catch {
       // FTS5 might not be available
     }
@@ -566,10 +588,10 @@ export class MemoryDB {
       // Clear and rebuild
       this.db.exec('DELETE FROM chunks_fts');
       const rows = this.db.prepare(`
-        SELECT c.id, c.content, f.path as file_path
+        SELECT c.id, c.content, c.context_prefix, f.path as file_path
         FROM chunks c
         JOIN files f ON c.file_id = f.id
-      `).all() as Array<{ id: number; content: string; file_path: string }>;
+      `).all() as Array<{ id: number; content: string; context_prefix: string | null; file_path: string }>;
 
       const insertStmt = this.db.prepare(`
         INSERT INTO chunks_fts (rowid, content, filename, path_tokens, headings)
@@ -581,7 +603,8 @@ export class MemoryDB {
           const filename = this.getFilenameForPath(row.file_path);
           const pathTokens = this.tokenizePath(row.file_path);
           const headings = this.extractHeadingsFromContent(row.content);
-          insertStmt.run(row.id, row.content, filename, pathTokens, headings);
+          const ftsContent = row.context_prefix ? row.context_prefix + '\n\n' + row.content : row.content;
+          insertStmt.run(row.id, ftsContent, filename, pathTokens, headings);
         }
       });
     } catch {
@@ -799,6 +822,15 @@ export class MemoryDB {
     this.db.prepare(
       'INSERT OR REPLACE INTO query_embedding_cache (query_text, embedding, created_at) VALUES (?, ?, ?)'
     ).run(queryText, buffer, Date.now());
+  }
+
+  getCachedContext(hash: string): string | null {
+    const row = this.db.prepare('SELECT context_prefix FROM context_cache WHERE doc_chunk_hash = ?').get(hash) as { context_prefix: string } | undefined;
+    return row?.context_prefix ?? null;
+  }
+
+  setCachedContext(hash: string, prefix: string): void {
+    this.db.prepare('INSERT OR REPLACE INTO context_cache (doc_chunk_hash, context_prefix, created_at) VALUES (?, ?, ?)').run(hash, prefix, Date.now());
   }
 
   close(): void {

@@ -1,5 +1,13 @@
 // Types for memory-search CLI
 
+export interface ContextLlmSlot {
+  endpoint: string;
+  model: string;
+  apiKey: string;
+  parallelism?: number;
+  batchSize?: number;
+}
+
 export interface Collection {
   name: string;
   paths: string[];
@@ -18,6 +26,13 @@ export interface Config {
   searchCandidateCap?: number;
   expandQueries?: boolean;
   pathContexts?: PathContext[];
+  contextualizeChunks?: boolean;
+  contextParallelism?: number;
+  contextMaxDocTokens?: number;
+  contextLlmEndpoint?: string;
+  contextLlmModel?: string;
+  contextLlmApiKey?: string;
+  contextLlmEndpoints?: ContextLlmSlot[];
 }
 
 export interface PathContext {

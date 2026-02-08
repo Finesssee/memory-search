@@ -12,7 +12,8 @@ export function registerIndexCommand(program: Command): void {
     .description('Index or reindex checkpoint files')
     .option('--force', 'Force re-embed all files')
     .option('--prune', 'Delete indexed files that no longer exist on disk')
-    .action(async (options: { force?: boolean; prune?: boolean }) => {
+    .option('--contextualize', 'Generate LLM context for chunks (improves retrieval)')
+    .action(async (options: { force?: boolean; prune?: boolean; contextualize?: boolean }) => {
       const config = loadConfig();
 
       // Check if embedding server is running
@@ -26,6 +27,9 @@ export function registerIndexCommand(program: Command): void {
       }
 
       console.log(chalk.blue('Indexing files...'));
+      if (options.contextualize) {
+        config.contextualizeChunks = true;
+      }
       const sourceCount = (config.sources?.length || 0) + (config.collections?.length || 0);
       console.log(chalk.gray(`Sources: ${sourceCount} configured`));
 
@@ -48,6 +52,9 @@ export function registerIndexCommand(program: Command): void {
       console.log(chalk.gray(`  Skipped: ${result.skipped} (unchanged)`));
       if (options.prune) {
         console.log(chalk.gray(`  Pruned: ${result.pruned} (missing on disk)`));
+      }
+      if (options.contextualize && result.contextualized > 0) {
+        console.log(chalk.gray(`  Contextualized: ${result.contextualized} chunks`));
       }
       console.log(chalk.gray(`  Time: ${elapsed}s`));
 
