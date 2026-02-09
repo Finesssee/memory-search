@@ -3,7 +3,7 @@
 import Database from 'better-sqlite3';
 import { basename } from 'node:path';
 import type { Config, FileRecord, ChunkRecord, Observation, Session } from '../types.js';
-import { hashContent } from '../utils/hash.js';
+import { hashContent, shortId } from '../utils/hash.js';
 import { logDebug, logInfo, logWarn, logError, errorMessage } from '../utils/log.js';
 
 // Try to load sqlite-vec if available
@@ -81,8 +81,10 @@ export class MemoryDB {
     addColumn('chunks', 'session_id', 'TEXT');
     addColumn('chunks', 'content_hash', 'TEXT');
     addColumn('chunks', 'context_prefix', 'TEXT');
+    addColumn('chunks', 'short_id', 'TEXT');
 
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_session ON chunks(session_id)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_short_id ON chunks(short_id)');
 
     // Create tables — IF NOT EXISTS handles idempotency; catch logs unexpected errors
     const safeExec = (label: string, sql: string) => {
@@ -327,6 +329,7 @@ export class MemoryDB {
   ): void {
     const embeddingBuffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
     const contentHash = hashContent(content);
+    const sid = shortId(content);
 
     // Prepare observation metadata
     const observationType = observation?.type ?? null;
@@ -334,9 +337,9 @@ export class MemoryDB {
     const filesReferenced = observation?.files?.length ? JSON.stringify(observation.files) : null;
 
     const result = this.db.prepare(`
-      INSERT INTO chunks (file_id, chunk_index, content, line_start, line_end, embedding, observation_type, concepts, files_referenced, session_id, content_hash, context_prefix)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(fileId, chunkIndex, content, lineStart, lineEnd, embeddingBuffer, observationType, concepts, filesReferenced, sessionId ?? null, contentHash, contextPrefix ?? null);
+      INSERT INTO chunks (file_id, chunk_index, content, line_start, line_end, embedding, observation_type, concepts, files_referenced, session_id, content_hash, context_prefix, short_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(fileId, chunkIndex, content, lineStart, lineEnd, embeddingBuffer, observationType, concepts, filesReferenced, sessionId ?? null, contentHash, contextPrefix ?? null, sid);
 
     // Also insert into FTS5 index
     try {
@@ -504,6 +507,109 @@ export class MemoryDB {
       filePath: row.file_path,
       contentHash: row.content_hash ?? hashContent(row.content),
     };
+  }
+
+  getChunkByShortId(sid: string): (ChunkRecord & { filePath: string }) | undefined {
+    const row = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE c.short_id = ?
+      LIMIT 1
+    `).get(sid) as {
+      id: number;
+      file_id: number;
+      chunk_index: number;
+      content: string;
+      line_start: number;
+      line_end: number;
+      embedding: Buffer;
+      file_path: string;
+      content_hash: string | null;
+    } | undefined;
+
+    if (!row) return undefined;
+
+    return {
+      id: row.id,
+      fileId: row.file_id,
+      chunkIndex: row.chunk_index,
+      content: row.content,
+      lineStart: row.line_start,
+      lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path,
+      contentHash: row.content_hash ?? hashContent(row.content),
+    };
+  }
+
+  getChunksByFilePath(filePath: string): (ChunkRecord & { filePath: string })[] {
+    const rows = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE f.path = ?
+      ORDER BY c.chunk_index
+    `).all(filePath) as Array<{
+      id: number; file_id: number; chunk_index: number; content: string;
+      line_start: number; line_end: number; embedding: Buffer;
+      file_path: string; content_hash: string | null;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id, fileId: row.file_id, chunkIndex: row.chunk_index,
+      content: row.content, lineStart: row.line_start, lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path, contentHash: row.content_hash ?? hashContent(row.content),
+    }));
+  }
+
+  getChunksByFilePathSubstring(sub: string): (ChunkRecord & { filePath: string })[] {
+    const rows = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE f.path LIKE ?
+      ORDER BY f.path, c.chunk_index
+    `).all(`%${sub}%`) as Array<{
+      id: number; file_id: number; chunk_index: number; content: string;
+      line_start: number; line_end: number; embedding: Buffer;
+      file_path: string; content_hash: string | null;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id, fileId: row.file_id, chunkIndex: row.chunk_index,
+      content: row.content, lineStart: row.line_start, lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path, contentHash: row.content_hash ?? hashContent(row.content),
+    }));
+  }
+
+  getFilesByPathPattern(pattern: string): (ChunkRecord & { filePath: string })[] {
+    const likePattern = pattern
+      .replace(/%/g, '\\%')
+      .replace(/_/g, '\\_')
+      .replace(/\*/g, '%')
+      .replace(/\?/g, '_');
+
+    const rows = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE f.path LIKE ? ESCAPE '\\'
+      ORDER BY f.path, c.chunk_index
+    `).all(likePattern) as Array<{
+      id: number; file_id: number; chunk_index: number; content: string;
+      line_start: number; line_end: number; embedding: Buffer;
+      file_path: string; content_hash: string | null;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id, fileId: row.file_id, chunkIndex: row.chunk_index,
+      content: row.content, lineStart: row.line_start, lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path, contentHash: row.content_hash ?? hashContent(row.content),
+    }));
   }
 
   getSurroundingChunks(chunkId: number, range = 2): (ChunkRecord & { filePath: string })[] {
@@ -849,6 +955,68 @@ export class MemoryDB {
              c.content_hash as contentHash, c.context_prefix as contextPrefix
       FROM chunks c JOIN files f ON c.file_id = f.id ORDER BY f.path, c.chunk_index
     `).all() as any[];
+  }
+
+  removeOrphanChunks(): number {
+    const result = this.db.prepare(`
+      DELETE FROM chunks WHERE file_id NOT IN (SELECT id FROM files)
+    `).run();
+    return result.changes;
+  }
+
+  removeOrphanFts(): number {
+    try {
+      const result = this.db.prepare(`
+        DELETE FROM chunks_fts WHERE rowid NOT IN (SELECT id FROM chunks)
+      `).run();
+      return result.changes;
+    } catch { return 0; }
+  }
+
+  removeOrphanVec(): number {
+    if (!this.vssEnabled) return 0;
+    try {
+      const result = this.db.prepare(`
+        DELETE FROM chunks_vec WHERE rowid NOT IN (SELECT id FROM chunks)
+      `).run();
+      return result.changes;
+    } catch { return 0; }
+  }
+
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
+
+  getDetailedStats(): { files: number; chunks: number; orphanChunks: number; orphanFts: number; cacheEntries: number; dbSizeMb: number } {
+    const files = (this.db.prepare('SELECT COUNT(*) as count FROM files').get() as { count: number }).count;
+    const chunks = (this.db.prepare('SELECT COUNT(*) as count FROM chunks').get() as { count: number }).count;
+    const orphanChunks = (this.db.prepare('SELECT COUNT(*) as count FROM chunks WHERE file_id NOT IN (SELECT id FROM files)').get() as { count: number }).count;
+
+    let orphanFts = 0;
+    try {
+      orphanFts = (this.db.prepare('SELECT COUNT(*) as count FROM chunks_fts WHERE rowid NOT IN (SELECT id FROM chunks)').get() as { count: number }).count;
+    } catch { /* FTS may not exist */ }
+
+    let cacheEntries = 0;
+    try {
+      cacheEntries = (this.db.prepare('SELECT COUNT(*) as count FROM query_embedding_cache').get() as { count: number }).count;
+    } catch { /* may not exist */ }
+
+    const pageCount = (this.db.pragma('page_count') as { page_count: number }[])[0]?.page_count ?? 0;
+    const pageSize = (this.db.pragma('page_size') as { page_size: number }[])[0]?.page_size ?? 4096;
+    const dbSizeMb = (pageCount * pageSize) / (1024 * 1024);
+
+    return { files, chunks, orphanChunks, orphanFts, cacheEntries, dbSizeMb };
+  }
+
+  getChunkIdsByObservationType(type: string): Set<number> {
+    const rows = this.db.prepare('SELECT id FROM chunks WHERE observation_type = ?').all(type) as { id: number }[];
+    return new Set(rows.map(r => r.id));
+  }
+
+  getChunkIdsByConcept(concept: string): Set<number> {
+    const rows = this.db.prepare("SELECT id FROM chunks WHERE concepts LIKE ?").all(`%"${concept}"%`) as { id: number }[];
+    return new Set(rows.map(r => r.id));
   }
 
   close(): void {
