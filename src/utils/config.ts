@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import type { Config, ContextLlmSlot } from '../types.js';
 import { logWarn } from './log.js';
+import { applyMode } from './mode-manager.js';
 
 const CONFIG_DIR = join(homedir(), '.memory-search');
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json');
@@ -41,6 +42,7 @@ export const KNOWN_KEYS = new Set<string>([
   'contextLlmModel',
   'contextLlmApiKey',
   'contextLlmEndpoints',
+  'aiProviders',
 ]);
 
 const NUMERIC_RANGES: Record<string, [number, number]> = {
@@ -72,6 +74,7 @@ const ARRAY_FIELDS = new Set([
   'ignorePaths',
   'pathContexts',
   'contextLlmEndpoints',
+  'aiProviders',
 ]);
 
 export function validateConfig(raw: Record<string, unknown>): { config: Config; warnings: string[] } {
@@ -179,6 +182,19 @@ export function ensureConfigDir(): void {
   }
 }
 
+let indexOverride: string | undefined;
+
+export function setIndexOverride(name: string): void {
+  indexOverride = name;
+}
+
+export function applyIndexOverride(config: Config, indexName?: string): Config {
+  if (!indexName) return config;
+  const indexDir = join(homedir(), '.memory-search', 'indexes');
+  mkdirSync(indexDir, { recursive: true });
+  return { ...config, indexPath: join(indexDir, `${indexName}.db`) };
+}
+
 export function loadConfig(): Config {
   ensureConfigDir();
 
@@ -200,7 +216,14 @@ export function loadConfig(): Config {
     }
   }
 
-  return applyEnvOverrides(config);
+  config = applyMode(config);
+  config = applyEnvOverrides(config);
+
+  if (indexOverride) {
+    config = applyIndexOverride(config, indexOverride);
+  }
+
+  return config;
 }
 
 export function saveConfig(config: Config): void {
