@@ -19,7 +19,7 @@ Semantic search CLI for your personal knowledge base. Hybrid BM25 + vector searc
 ## Install
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/memory-search.git
+git clone https://github.com/Finesssee/memory-search.git
 cd memory-search
 pnpm install
 pnpm build
