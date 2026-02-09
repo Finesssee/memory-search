@@ -1,5 +1,11 @@
 # memory-search
 
+[![npm](https://img.shields.io/npm/v/memory-search.svg)](https://www.npmjs.com/package/memory-search)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-green.svg)](https://nodejs.org/)
+[![CI](https://github.com/Finesssee/memory-search/actions/workflows/ci.yml/badge.svg)](https://github.com/Finesssee/memory-search/actions/workflows/ci.yml)
+
 Semantic search CLI for your personal knowledge base. Hybrid BM25 + vector search with cross-encoder reranking over markdown files, notes, session logs, and docs.
 
 ## Features
