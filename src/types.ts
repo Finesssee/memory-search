@@ -1,5 +1,15 @@
 // Types for memory-search CLI
 
+export interface AIProvider {
+  name: string;
+  endpoint: string;
+  model?: string;
+  apiKey?: string;
+  priority: number;
+  maxRetries?: number;
+  timeoutMs?: number;
+}
+
 export interface ContextLlmSlot {
   endpoint: string;
   model: string;
@@ -33,6 +43,7 @@ export interface Config {
   contextLlmModel?: string;
   contextLlmApiKey?: string;
   contextLlmEndpoints?: ContextLlmSlot[];
+  aiProviders?: AIProvider[];
 }
 
 export interface PathContext {
@@ -107,7 +118,7 @@ export interface Fact {
   updatedAt: number;
 }
 
-export type ObservationType = 'bugfix' | 'feature' | 'decision' | 'preference' | 'learning' | 'config';
+export type ObservationType = 'bugfix' | 'feature' | 'decision' | 'preference' | 'learning' | 'config' | 'architecture' | 'reference';
 
 export interface Observation {
   type: ObservationType;
