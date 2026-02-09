@@ -15,7 +15,6 @@ interface RerankRequest {
 interface RerankResult {
   index: number;
   score: number;
-  scores: { bge: number; gemma: number; qwen: number };
 }
 
 const MODELS = {
@@ -24,16 +23,6 @@ const MODELS = {
   qwen: '@cf/qwen/qwen3-embedding-0.6b',
 } as const;
 
-// Cosine similarity between two vectors
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dot = 0, normA = 0, normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -87,7 +76,7 @@ export default {
         });
       }
 
-      // Rerank endpoint - uses all models to score documents against query
+      // Rerank endpoint - uses bge-reranker-base cross-encoder
       if (url.pathname === '/rerank') {
         const body = await request.json() as RerankRequest;
 
@@ -98,35 +87,14 @@ export default {
           });
         }
 
-        // Get embeddings from all models in parallel
-        const allTexts = [body.query, ...body.documents];
+        const rerankerResult = await env.AI.run('@cf/baai/bge-reranker-base' as any, {
+          query: body.query,
+          contexts: body.documents.map((text) => ({ text })),
+        }) as { response: { id: number; score: number }[] };
 
-        const [bgeResult, gemmaResult, qwenResult] = await Promise.all([
-          env.AI.run(MODELS.bge, { text: allTexts }),
-          env.AI.run(MODELS.gemma, { text: allTexts }),
-          env.AI.run(MODELS.qwen, { text: allTexts }),
-        ]);
-
-        // Calculate similarity scores for each document against query
-        const results: RerankResult[] = body.documents.map((_, idx) => {
-          const docIdx = idx + 1; // +1 because query is at index 0
-
-          const bgeScore = cosineSimilarity(bgeResult.data[0], bgeResult.data[docIdx]);
-          const gemmaScore = cosineSimilarity(gemmaResult.data[0], gemmaResult.data[docIdx]);
-          const qwenScore = cosineSimilarity(qwenResult.data[0], qwenResult.data[docIdx]);
-
-          // RRF-style combination: average of normalized scores
-          const combinedScore = (bgeScore + gemmaScore + qwenScore) / 3;
-
-          return {
-            index: idx,
-            score: combinedScore,
-            scores: { bge: bgeScore, gemma: gemmaScore, qwen: qwenScore },
-          };
-        });
-
-        // Sort by combined score descending
-        results.sort((a, b) => b.score - a.score);
+        const results: RerankResult[] = rerankerResult.response
+          .map((item) => ({ index: item.id, score: item.score }))
+          .sort((a, b) => b.score - a.score);
 
         return new Response(JSON.stringify(results), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },

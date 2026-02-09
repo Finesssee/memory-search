@@ -1,4 +1,4 @@
-// Multi-model reranker using Cloudflare Workers AI
+// Cross-encoder reranker using Cloudflare Workers AI (bge-reranker-base)
 
 import type { Config, SearchResult } from '../types.js';
 import { RerankCache } from '../storage/rerank-cache.js';
@@ -10,7 +10,6 @@ import { getRerankEndpoint } from '../utils/api-endpoints.js';
 interface RerankResponse {
   index: number;
   score: number;
-  scores: { bge: number; gemma: number; qwen: number };
 }
 
 interface SearchResultWithRank extends SearchResult {
@@ -23,9 +22,9 @@ interface SearchResultWithRank extends SearchResult {
  * Conservative weights since reranker quality varies.
  */
 export function getBlendWeights(rank: number): { retrieval: number; reranker: number } {
-  if (rank <= 3) return { retrieval: 0.95, reranker: 0.05 };
-  if (rank <= 10) return { retrieval: 0.90, reranker: 0.10 };
-  return { retrieval: 0.80, reranker: 0.20 };
+  if (rank <= 3) return { retrieval: 0.70, reranker: 0.30 };
+  if (rank <= 10) return { retrieval: 0.60, reranker: 0.40 };
+  return { retrieval: 0.50, reranker: 0.50 };
 }
 
 export function clamp01(value: number): number {
@@ -54,86 +53,6 @@ export function normalizeRerankerScore(score: number): number {
   return clamp01(1 / (1 + Math.exp(-score)));
 }
 
-export function parseRerankerWeights(rawValue: string | undefined): { bge: number; qwen: number; gemma: number } {
-  const defaults = { bge: 0.5, qwen: 0.3, gemma: 0.2 };
-  if (!rawValue || rawValue.trim().length === 0) return defaults;
-
-  const parsed: Partial<Record<'bge' | 'qwen' | 'gemma', number>> = {};
-
-  const trimmed = rawValue.trim();
-  if (trimmed.startsWith('{')) {
-    try {
-      const json = JSON.parse(trimmed) as Record<string, unknown>;
-      for (const key of ['bge', 'qwen', 'gemma'] as const) {
-        const value = json[key];
-        if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-          parsed[key] = value;
-        }
-      }
-    } catch {
-      return defaults;
-    }
-  } else {
-    const pairs = trimmed
-      .split(',')
-      .map(part => part.trim())
-      .filter(Boolean);
-    for (const pair of pairs) {
-      const [rawKey, rawNumber] = pair.includes('=')
-        ? pair.split('=')
-        : pair.includes(':')
-          ? pair.split(':')
-          : [];
-      if (!rawKey || !rawNumber) continue;
-      const key = rawKey.trim().toLowerCase();
-      if (key !== 'bge' && key !== 'qwen' && key !== 'gemma') continue;
-      const value = Number.parseFloat(rawNumber.trim());
-      if (!Number.isFinite(value) || value < 0) continue;
-      parsed[key] = value;
-    }
-  }
-
-  const bge = parsed.bge ?? defaults.bge;
-  const qwen = parsed.qwen ?? defaults.qwen;
-  const gemma = parsed.gemma ?? defaults.gemma;
-  const sum = bge + qwen + gemma;
-  if (!Number.isFinite(sum) || sum <= 0) return defaults;
-
-  return {
-    bge: bge / sum,
-    qwen: qwen / sum,
-    gemma: gemma / sum,
-  };
-}
-
-export function blendNormalizedScores(
-  scores: Record<string, unknown> | undefined,
-  weights: { bge: number; qwen: number; gemma: number }
-): number | null {
-  if (!scores) return null;
-
-  const bge = typeof scores.bge === 'number' ? normalizeRerankerScore(scores.bge) : null;
-  const qwen = typeof scores.qwen === 'number' ? normalizeRerankerScore(scores.qwen) : null;
-  const gemma = typeof scores.gemma === 'number' ? normalizeRerankerScore(scores.gemma) : null;
-
-  let weightedSum = 0;
-  let weightSum = 0;
-  if (bge !== null) {
-    weightedSum += bge * weights.bge;
-    weightSum += weights.bge;
-  }
-  if (qwen !== null) {
-    weightedSum += qwen * weights.qwen;
-    weightSum += weights.qwen;
-  }
-  if (gemma !== null) {
-    weightedSum += gemma * weights.gemma;
-    weightSum += weights.gemma;
-  }
-
-  if (weightSum <= 0) return null;
-  return clamp01(weightedSum / weightSum);
-}
 
 export function minMaxNormalizeScores(scoresByIndex: Map<number, number>): Map<number, number> {
   const normalized = new Map<number, number>();
@@ -185,8 +104,8 @@ function getDocKey(result: SearchResultWithRank): string {
 }
 
 /**
- * Rerank search results using multiple embedding models (BGE, Gemma, Qwen)
- * Calls the /rerank endpoint which runs all 3 models in parallel
+ * Rerank search results using bge-reranker-base cross-encoder
+ * Calls the /rerank endpoint which scores query-document pairs directly
  * Uses per-document caching to avoid redundant API calls
  */
 export async function rerankResults(
@@ -203,8 +122,7 @@ export async function rerankResults(
   }
 
   const cache = new RerankCache(config);
-  const model = 'multi-v5'; // Cache key for weighted multi-model blend + per-query normalization
-  const modelWeights = parseRerankerWeights(process.env.RERANKER_WEIGHTS);
+  const model = 'bge-reranker-v1'; // Cache key for bge-reranker-base cross-encoder
   const queryHash = hashContent(query);
 
   // Check cache for each document
@@ -263,8 +181,7 @@ export async function rerankResults(
       }
 
       const docKey = getDocKey(results[originalIndex]);
-      const blended = blendNormalizedScores((r as unknown as { scores?: Record<string, unknown> }).scores, modelWeights);
-      const normalized = blended ?? normalizeRerankerScore((r as unknown as { score?: number }).score ?? NaN);
+      const normalized = normalizeRerankerScore((r as unknown as { score?: number }).score ?? NaN);
       cache.setScore(queryHash, docKey, model, normalized);
       newScores.set(originalIndex, normalized);
     }
@@ -299,7 +216,6 @@ export async function rerankResults(
         rerankerRawScore,
         rerankerScore,
         rerankerWeights: weights,
-        rerankerModelWeights: modelWeights,
       },
       score: blendedScore,
     };

@@ -4,8 +4,6 @@ import {
   clamp01,
   isTrivialQuery,
   normalizeRerankerScore,
-  parseRerankerWeights,
-  blendNormalizedScores,
   minMaxNormalizeScores,
 } from './reranker.js';
 
@@ -13,20 +11,20 @@ import {
 describe('getBlendWeights', () => {
   it('returns high retrieval weight for top-3 ranks', () => {
     const w = getBlendWeights(1);
-    expect(w.retrieval).toBe(0.95);
-    expect(w.reranker).toBe(0.05);
+    expect(w.retrieval).toBe(0.70);
+    expect(w.reranker).toBe(0.30);
   });
 
   it('returns moderate weights for ranks 4-10', () => {
     const w = getBlendWeights(5);
-    expect(w.retrieval).toBe(0.90);
-    expect(w.reranker).toBe(0.10);
+    expect(w.retrieval).toBe(0.60);
+    expect(w.reranker).toBe(0.40);
   });
 
   it('returns lower retrieval weight for ranks beyond 10', () => {
     const w = getBlendWeights(15);
-    expect(w.retrieval).toBe(0.80);
-    expect(w.reranker).toBe(0.20);
+    expect(w.retrieval).toBe(0.50);
+    expect(w.reranker).toBe(0.50);
   });
 });
 
@@ -88,71 +86,6 @@ describe('normalizeRerankerScore', () => {
   it('returns 0 for NaN/Infinity', () => {
     expect(normalizeRerankerScore(NaN)).toBe(0);
     expect(normalizeRerankerScore(Infinity)).toBe(0);
-  });
-});
-
-// --- parseRerankerWeights ---
-describe('parseRerankerWeights', () => {
-  it('returns defaults when input is undefined', () => {
-    const w = parseRerankerWeights(undefined);
-    expect(w.bge).toBeCloseTo(0.5, 5);
-    expect(w.qwen).toBeCloseTo(0.3, 5);
-    expect(w.gemma).toBeCloseTo(0.2, 5);
-  });
-
-  it('parses JSON object format', () => {
-    const w = parseRerankerWeights('{"bge": 1, "qwen": 1, "gemma": 1}');
-    // Should be normalized to 1/3 each
-    expect(w.bge).toBeCloseTo(1 / 3, 5);
-    expect(w.qwen).toBeCloseTo(1 / 3, 5);
-    expect(w.gemma).toBeCloseTo(1 / 3, 5);
-  });
-
-  it('parses comma-separated key=value format', () => {
-    const w = parseRerankerWeights('bge=0.6, qwen=0.3, gemma=0.1');
-    expect(w.bge).toBeCloseTo(0.6, 5);
-    expect(w.qwen).toBeCloseTo(0.3, 5);
-    expect(w.gemma).toBeCloseTo(0.1, 5);
-  });
-
-  it('returns defaults for invalid JSON', () => {
-    const w = parseRerankerWeights('{bad json');
-    expect(w.bge).toBeCloseTo(0.5, 5);
-  });
-
-  it('returns defaults for empty string', () => {
-    const w = parseRerankerWeights('');
-    expect(w.bge).toBeCloseTo(0.5, 5);
-  });
-});
-
-// --- blendNormalizedScores ---
-describe('blendNormalizedScores', () => {
-  const weights = { bge: 0.5, qwen: 0.3, gemma: 0.2 };
-
-  it('blends all three model scores', () => {
-    const scores = { bge: 0.8, qwen: 0.6, gemma: 0.4 };
-    const result = blendNormalizedScores(scores, weights);
-    expect(result).not.toBeNull();
-    // (0.8*0.5 + 0.6*0.3 + 0.4*0.2) / (0.5+0.3+0.2) = (0.4+0.18+0.08)/1.0 = 0.66
-    expect(result!).toBeCloseTo(0.66, 2);
-  });
-
-  it('handles partial scores (missing models)', () => {
-    const scores = { bge: 0.9 };
-    const result = blendNormalizedScores(scores, weights);
-    expect(result).not.toBeNull();
-    // Only bge present: (0.9 * 0.5) / 0.5 = 0.9
-    expect(result!).toBeCloseTo(0.9, 2);
-  });
-
-  it('returns null when scores is undefined', () => {
-    expect(blendNormalizedScores(undefined, weights)).toBeNull();
-  });
-
-  it('returns null when no valid scores', () => {
-    const scores = { other: 'invalid' };
-    expect(blendNormalizedScores(scores, weights)).toBeNull();
   });
 });
 
