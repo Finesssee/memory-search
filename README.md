@@ -7,6 +7,7 @@ Semantic search CLI for your personal knowledge base. Hybrid BM25 + vector searc
 - **Hybrid search** — BM25 keyword matching + vector cosine similarity with RRF fusion
 - **Cross-encoder reranking** — bge-reranker-base scores query-document pairs for better relevance
 - **Chunked indexing** — markdown-aware splitting with heading context preserved
+- **Contextual retrieval** — optional LLM-generated context prefixes per chunk for better search (Groq, Cloudflare AI, or any OpenAI-compatible endpoint)
 - **Query expansion** — optional LLM-powered query rewriting + HyDE for better recall
 - **Collections** — organize sources into named groups for filtered search
 - **Facts store** — key-value pairs for hard facts (preferences, configs, decisions)
@@ -52,6 +53,7 @@ memory search "auth" --path src/                # Filter by file path
 memory index                                    # Index new/changed files
 memory index --force                            # Re-embed everything
 memory index --prune                            # Remove deleted files
+memory index --contextualize                    # Add LLM context prefixes
 
 # Facts
 memory facts set "project.stack" "TypeScript"   # Store a fact
@@ -79,9 +81,17 @@ memory import backup.json                       # Restore
 ## Architecture
 
 ```
-Query → Expander (optional) → BGE embed → BM25 + Vector (parallel)
-      → RRF fusion → Cross-encoder reranker → Results
+Index:  File → Chunker → Contextualizer (optional LLM) → BGE embed → SQLite
+
+Query:  Query → Expander (optional) → BGE embed → BM25 + Vector (parallel)
+              → RRF fusion → Cross-encoder reranker → Results
 ```
+
+### Providers
+
+- **Cloudflare Workers AI** (included) — embeddings, reranking, and chat via the included worker (`workers/embed-api/`). Free tier eligible.
+- **Groq** — fast LLM inference for contextual retrieval (`--contextualize`). Configure as a `contextLlmEndpoints` slot.
+- **Any OpenAI-compatible endpoint** — the contextualizer and query expander work with any chat completions API.
 
 See [docs/architecture.md](docs/architecture.md) for details and design decisions.
 
