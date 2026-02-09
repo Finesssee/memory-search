@@ -1,5 +1,5 @@
 {
-  "name": "memory-search",
+  "name": "@nesszerra/memory-search",
   "version": "1.0.0",
   "description": "Hybrid BM25 + vector search CLI for personal knowledge bases. Cross-encoder reranking, SQLite + sqlite-vec.",
   "type": "module",
@@ -38,6 +38,10 @@
     "config.example.json",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "engines": {
     "node": ">=20"
   },
