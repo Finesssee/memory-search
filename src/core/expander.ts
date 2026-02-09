@@ -4,6 +4,7 @@ import type { Config, ExpandedQuery, ExpandedQueries } from '../types.js';
 import { fetchWithRetry } from '../utils/network.js';
 import { LruCache } from '../utils/lru.js';
 import { getChatEndpoint, getExpandEndpoint } from '../utils/api-endpoints.js';
+import { getProviderChain } from './provider.js';
 
 // LRU cache for query expansion results (max 200 entries)
 const expansionCache = new LruCache<string, ExpandedQueries>(200);
@@ -166,6 +167,32 @@ Rules:
 - hyde: A plausible answer as if you knew it
 
 JSON only, no markdown:`;
+
+  // Try provider chain first if configured
+  const chain = getProviderChain(config.aiProviders);
+  if (chain) {
+    try {
+      const text = await chain.chatCompletion(prompt);
+      if (text) {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]) as { lex?: string[]; vec?: string[]; hyde?: string };
+          const rawLex = Array.isArray(parsed.lex) ? parsed.lex.slice(0, 2) : [];
+          const rawVec = Array.isArray(parsed.vec) ? parsed.vec.slice(0, 2) : [];
+          const rawHyde = typeof parsed.hyde === 'string' ? parsed.hyde : '';
+          const filteredLex = filterDriftedQueries(query, rawLex);
+          const filteredVec = filterDriftedQueries(query, rawVec);
+          const hydeCandidate = rawHyde.trim().replace(/\s+/g, ' ');
+          const hyde = hydeCandidate.length >= 20 && hydeCandidate.length <= 500 ? hydeCandidate : '';
+          const result: ExpandedQueries = { original: query, lex: filteredLex, vec: filteredVec, hyde };
+          expansionCache.set(cacheKey, result);
+          return result;
+        }
+      }
+    } catch {
+      // Fall through to direct fetch
+    }
+  }
 
   try {
     const response = await fetchWithRetry(chatEndpoint, {
