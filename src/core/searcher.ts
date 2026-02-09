@@ -29,10 +29,13 @@ interface RankedItem {
   blendWeights?: { bm25: number; semantic: number };
 }
 
+export type SearchMode = 'hybrid' | 'bm25' | 'vector';
+
 export async function search(
   query: string,
   config: Config,
-  onStage?: (stage: string) => void
+  onStage?: (stage: string) => void,
+  mode: SearchMode = 'hybrid'
 ): Promise<SearchResult[]> {
   const db = new MemoryDB(config);
   const candidateCap = config.searchCandidateCap ?? 300;
@@ -83,8 +86,8 @@ export async function search(
     const searchPromises = queries.map(async (q) => {
       // Only run semantic search for original, vec, and hyde queries
       // Only run keyword search for original and lex queries
-      const runSemantic = q.type === 'original' || q.type === 'vec' || q.type === 'hyde';
-      const runKeyword = q.type === 'original' || q.type === 'lex';
+      const runSemantic = mode !== 'bm25' && (q.type === 'original' || q.type === 'vec' || q.type === 'hyde');
+      const runKeyword = mode !== 'vector' && (q.type === 'original' || q.type === 'lex');
 
       const [semanticResults, keywordResults] = await Promise.all([
         runSemantic ? semanticSearch(q.text, config, db, candidateCap) : Promise.resolve([]),
@@ -271,6 +274,12 @@ export async function search(
         };
       })
       .filter((r): r is NonNullable<typeof r> => r !== null);
+
+    // Skip reranking for bm25 mode
+    if (mode === 'bm25') {
+      onStage?.('Done');
+      return initialResults.slice(0, finalTopK);
+    }
 
     // Rerank using multi-model ensemble (BGE + Gemma + Qwen)
     onStage?.('Reranking...');
