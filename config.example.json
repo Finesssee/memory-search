@@ -1,0 +1,26 @@
+{
+  "sources": [
+    "/path/to/your/notes",
+    "/path/to/more/docs"
+  ],
+  "indexPath": "~/.memory-search/index.db",
+  "embeddingEndpoint": "https://your-worker.workers.dev/embedding",
+  "embeddingDimensions": 768,
+  "chunkMaxTokens": 1000,
+  "chunkOverlapTokens": 150,
+  "searchTopK": 15,
+  "searchCandidateCap": 300,
+  "expandQueries": false,
+  "collections": [
+    {
+      "name": "docs",
+      "paths": ["/path/to/your/docs"]
+    }
+  ],
+  "pathContexts": [
+    {
+      "path": "/path/to/your/code",
+      "description": "Source code projects"
+    }
+  ]
+}

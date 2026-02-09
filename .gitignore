@@ -25,3 +25,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Logs
+*.log
+
+# Worker secrets (contains account_id)
+workers/embed-api/wrangler.toml
