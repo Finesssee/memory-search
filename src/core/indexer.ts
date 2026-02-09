@@ -10,6 +10,8 @@ import { contextualizeFileChunks } from './contextualizer.js';
 import { logInfo, logWarn } from '../utils/log.js';
 import { isShutdownRequested } from '../utils/shutdown.js';
 import type { Config } from '../types.js';
+import { detectObservationType } from './observation-detector.js';
+import { extractConcepts } from './concept-extractor.js';
 
 const BATCH_SIZE = 100;
 const FILE_SCAN_CONCURRENCY = 50;  // Parallel file reads during scan phase
@@ -289,6 +291,11 @@ export async function indexFiles(
             const fileId = (w as FileWork & { fileId: number }).fileId;
             const prefixes = contextPrefixes.get(w);
             const ctxPrefix = prefixes?.[chunkIdx] ?? '';
+            const detectedType = detectObservationType(chunk.content);
+            const detectedConcepts = extractConcepts(chunk.content);
+            const observation = (detectedType || detectedConcepts.length > 0)
+              ? { type: detectedType ?? 'reference' as const, concepts: detectedConcepts, files: [] as string[] }
+              : undefined;
             db.insertChunk(
               fileId,
               chunkIdx,
@@ -296,7 +303,7 @@ export async function indexFiles(
               chunk.lineStart,
               chunk.lineEnd,
               embeddings[i],
-              undefined,
+              observation,
               undefined,
               { filePath: w.normalizedPath, headings: chunk.headings },
               ctxPrefix || undefined
