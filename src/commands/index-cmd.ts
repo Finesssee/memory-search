@@ -2,6 +2,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { execSync } from 'node:child_process';
 import { indexFiles } from '../core/indexer.js';
 import { checkEmbeddingServer } from '../core/embeddings.js';
 import { loadConfig } from '../utils/config.js';
@@ -15,7 +16,8 @@ export function registerIndexCommand(program: Command): void {
     .option('--prune', 'Delete indexed files that no longer exist on disk')
     .option('--contextualize', 'Generate LLM context for chunks (improves retrieval)')
     .option('--dry-run', 'Show what would be indexed without making changes')
-    .action(async (options: { force?: boolean; prune?: boolean; contextualize?: boolean; dryRun?: boolean }) => {
+    .option('--pull', 'Run git pull in source directories before indexing')
+    .action(async (options: { force?: boolean; prune?: boolean; contextualize?: boolean; dryRun?: boolean; pull?: boolean }) => {
       const config = loadConfig();
 
       if (!options.dryRun) {
@@ -27,6 +29,28 @@ export function registerIndexCommand(program: Command): void {
           console.error(chalk.yellow('Check your config at ~/.memory-search/config.json'));
           console.error(chalk.yellow('Run "memory doctor" to diagnose issues.'));
           process.exit(1);
+        }
+      }
+
+      if (options.pull) {
+        const dirs = new Set<string>();
+        if (config.sources) {
+          for (const s of config.sources) dirs.add(s);
+        }
+        if (config.collections) {
+          for (const c of config.collections) {
+            for (const p of c.paths) dirs.add(p);
+          }
+        }
+
+        for (const dir of dirs) {
+          try {
+            execSync('git rev-parse --git-dir', { cwd: dir, stdio: 'pipe' });
+            console.log(chalk.gray(`Pulling ${dir}...`));
+            execSync('git pull', { cwd: dir, stdio: 'pipe' });
+          } catch {
+            // Not a git repo or pull failed — skip silently
+          }
         }
       }
 
