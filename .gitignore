@@ -32,3 +32,6 @@ Thumbs.db
 # Worker secrets (contains account_id)
 workers/embed-api/wrangler.toml
 nesszerra-memory-search-1.0.0.tgz
+
+# Personal benchmarks and scripts
+scripts/
