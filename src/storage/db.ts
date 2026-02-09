@@ -359,7 +359,7 @@ export class MemoryDB {
     // Also insert into vec0 index if enabled
     if (this.vssEnabled) {
       try {
-        this.db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)').run(result.lastInsertRowid, embeddingBuffer);
+        this.db.prepare('INSERT INTO chunks_vec (rowid, embedding) VALUES (?, ?)').run(BigInt(result.lastInsertRowid), embeddingBuffer);
       } catch (err) {
         logWarn('db', 'vec0 insert failed for chunk', { chunkIndex, error: errorMessage(err) });
       }
@@ -760,7 +760,7 @@ export class MemoryDB {
 
       this.withTransaction(() => {
         for (const chunk of chunks) {
-          insertStmt.run(chunk.id, chunk.embedding);
+          insertStmt.run(BigInt(chunk.id), chunk.embedding);
         }
       });
       logInfo('db', `vec0 index rebuilt with ${chunks.length} chunks`);
