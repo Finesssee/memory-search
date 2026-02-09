@@ -1,0 +1,7 @@
+name = "embed-api"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+account_id = "1f5d9146fc549e6d02c199622d6da27e"
+
+[ai]
+binding = "AI"
