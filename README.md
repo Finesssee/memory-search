@@ -70,6 +70,7 @@ memory import backup.json                       # Restore
 ## Docs
 
 - [Configuration](docs/configuration.md) — config fields, env vars, collections, path contexts
+- [Embedding API](docs/embed-api.md) — endpoint contracts, Cloudflare deploy, local server setup
 - [Agent Integration](docs/agent-integration.md) — Claude Code skill, key commands, facts, privacy tags
 - [Best Practices](docs/best-practices.md) — chunking, indexing, searching, reranking tips
 - [Architecture](docs/architecture.md) — pipeline diagram, design decisions, references
