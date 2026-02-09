@@ -8,6 +8,8 @@ import { checkEmbeddingServer } from '../core/embeddings.js';
 import { loadConfig } from '../utils/config.js';
 import { parseDate } from '../utils/date-parse.js';
 import { basename } from 'node:path';
+import { formatCsv, formatXml, formatMarkdown, formatFiles } from '../utils/formatters.js';
+import { estimateTokens } from '../utils/token-estimator.js';
 
 export function registerSearchCommand(program: Command): void {
   program
@@ -23,6 +25,10 @@ export function registerSearchCommand(program: Command): void {
     .option('--after <date>', 'Filter results modified after date (e.g. 7d, 2w, 2025-01-15)')
     .option('--before <date>', 'Filter results modified before date (e.g. 30d, 2025-06-01)')
     .option('--path <pattern>', 'Filter results by file path substring or glob')
+    .option('--type <type>', 'Filter by observation type')
+    .option('--concept <tag>', 'Filter by concept tag')
+    .option('--layer <n>', 'Progressive retrieval layer (1=compact, 2=timeline, 3=get)')
+    .option('--mode <type>', 'Search mode (hybrid|bm25|vector)', 'hybrid')
     .action(async (query: string, options: {
       limit: string;
       format: string;
@@ -34,6 +40,10 @@ export function registerSearchCommand(program: Command): void {
       after?: string;
       before?: string;
       path?: string;
+      type?: string;
+      concept?: string;
+      layer?: string;
+      mode?: string;
     }) => {
       // Validate inputs
       const limit = parseInt(options.limit, 10);
@@ -41,10 +51,26 @@ export function registerSearchCommand(program: Command): void {
         console.error(chalk.red('Error: --limit must be a positive integer'));
         process.exit(1);
       }
-      const validFormats = ['human', 'json'];
+      const validFormats = ['human', 'json', 'csv', 'xml', 'md', 'files'];
       if (!validFormats.includes(options.format)) {
         console.error(chalk.red(`Error: --format must be one of: ${validFormats.join(', ')}`));
         process.exit(1);
+      }
+      const validModes = ['hybrid', 'bm25', 'vector'];
+      if (options.mode && !validModes.includes(options.mode)) {
+        console.error(chalk.red(`Error: --mode must be one of: ${validModes.join(', ')}`));
+        process.exit(1);
+      }
+      // Handle --layer shortcut for progressive retrieval
+      if (options.layer) {
+        if (options.layer === '1') {
+          options.compact = true;
+        } else if (options.layer === '2') {
+          options.timeline = options.timeline ?? '0';
+        } else if (options.layer === '3') {
+          console.log(chalk.cyan('Layer 3: Use `memory get <id>` to retrieve full document content.'));
+          return;
+        }
       }
       if (options.timeline !== undefined) {
         const tid = parseInt(options.timeline, 10);
@@ -131,7 +157,7 @@ export function registerSearchCommand(program: Command): void {
             }
           : undefined;
 
-        const results = await search(query, config, onStage);
+        const results = await search(query, config, onStage, options.mode as any);
 
         // Filter by collection if requested
         let filteredResults = results;
@@ -155,6 +181,18 @@ export function registerSearchCommand(program: Command): void {
           filteredResults = filteredResults.filter(r => matchesPathFilter(r.file, options.path!));
         }
 
+        // Filter by observation type
+        if (options.type) {
+          const typeIds = db.getChunkIdsByObservationType(options.type);
+          filteredResults = filteredResults.filter(r => r.chunkId !== undefined && typeIds.has(r.chunkId));
+        }
+
+        // Filter by concept
+        if (options.concept) {
+          const conceptIds = db.getChunkIdsByConcept(options.concept);
+          filteredResults = filteredResults.filter(r => r.chunkId !== undefined && conceptIds.has(r.chunkId));
+        }
+
         db.close();
 
         if (filteredResults.length === 0) {
@@ -166,14 +204,23 @@ export function registerSearchCommand(program: Command): void {
           return;
         }
 
-        if (options.format === 'json' || options.compact) {
+        if (options.format === 'csv') {
+          console.log(formatCsv(filteredResults));
+        } else if (options.format === 'xml') {
+          console.log(formatXml(filteredResults, query));
+        } else if (options.format === 'md') {
+          console.log(formatMarkdown(filteredResults, query));
+        } else if (options.format === 'files') {
+          console.log(formatFiles(filteredResults));
+        } else if (options.format === 'json' || options.compact) {
           if (options.compact) {
             // Compact output for LLM
             const compact = filteredResults.map(r => ({
               id: r.chunkId,
               file: r.file,
               score: Number(r.score.toFixed(3)),
-              lines: [r.lineStart, r.lineEnd]
+              lines: [r.lineStart, r.lineEnd],
+              tokens: estimateTokens(r.snippet)
             }));
 
             console.log(JSON.stringify({ results: compact }));
