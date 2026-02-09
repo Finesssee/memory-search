@@ -5,6 +5,7 @@ import { search } from '../core/searcher.js';
 import { FactsDB } from '../storage/facts.js';
 import { assembleTimeline, formatTimelineAsContext } from '../core/timeline.js';
 import { loadConfig, saveConfig } from '../utils/config.js';
+import { generateContextBlock, upsertClaudeMd } from '../integrations/claude-md.js';
 import path from 'path';
 import chalk from 'chalk';
 
@@ -99,6 +100,41 @@ export function registerContextCommand(program: Command): void {
       } else {
         console.log(chalk.yellow(`No context found for ${resolvedPath}`));
       }
+    });
+
+  // Subcommand: sync
+  contextCmd
+    .command('sync [path]')
+    .description('Sync memory context into CLAUDE.md')
+    .option('-q, --query <query>', 'Custom search query for context')
+    .option('-l, --limit <n>', 'Max results', '5')
+    .action(async (targetPath: string | undefined, options: { query?: string; limit?: string }) => {
+      const projectPath = targetPath ?? process.cwd();
+      const config = loadConfig();
+      const limit = parseInt(options.limit ?? '5', 10);
+      config.searchTopK = limit;
+
+      // Use provided query or generate from project name
+      const query = options.query ?? path.basename(projectPath);
+
+      const results = await search(query, config);
+
+      const memories = results.map(r => ({
+        file: r.file,
+        snippet: r.snippet,
+        score: r.score,
+      }));
+
+      const contextBlock = generateContextBlock(memories);
+
+      if (!contextBlock) {
+        console.log(chalk.yellow('No relevant memories found.'));
+        return;
+      }
+
+      const claudePath = upsertClaudeMd(projectPath, contextBlock);
+      console.log(chalk.green(`Context synced to ${claudePath}`));
+      console.log(chalk.gray(`  ${memories.length} memories included`));
     });
 
   // Legacy support: if first arg is not a subcommand, treat as build
