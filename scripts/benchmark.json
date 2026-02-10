@@ -1,0 +1,171 @@
+{
+    "name": "memory-search-benchmark",
+    "k": 5,
+    "queries": [
+        {
+            "id": "q1",
+            "query": "irresistible offer bonuses guarantees hormozi",
+            "expected": [
+                "100m-offers/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q2",
+            "query": "blue ocean strategy framework",
+            "expected": [
+                "blue-ocean-strategist/SKILL.md",
+                "blue-ocean-strategist/index.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q3",
+            "query": "attention grabbing hooks viral content",
+            "expected": [
+                "100m-hooks-playbook/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q4",
+            "query": "lead generation warm outreach",
+            "expected": [
+                "100m-leads/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q5",
+            "query": "customer lifetime value increase",
+            "expected": [
+                "100m-ltv/SKILL.md",
+                "100m-money-models/SKILL.md"
+            ],
+            "category": "semantic",
+            "difficulty": "medium"
+        },
+        {
+            "id": "q6",
+            "query": "how to create irresistible offers",
+            "expected": [
+                "100m-offers/SKILL.md"
+            ],
+            "category": "natural-language",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q7",
+            "query": "value equation bonuses guarantees",
+            "expected": [
+                "100m-offers/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q8",
+            "query": "promotions discounts free samples",
+            "expected": [
+                "100m-leads-bonus/SKILL.md"
+            ],
+            "category": "semantic",
+            "difficulty": "medium"
+        },
+        {
+            "id": "q9",
+            "query": "email nurture sequence follow up",
+            "expected": [
+                "100m-leads-nurture/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q10",
+            "query": "journaling goals accountability",
+            "expected": [
+                "100m-journal/SKILL.md",
+                "100m-journal/index.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q11",
+            "query": "ad creative formats faceless demonstration",
+            "expected": [
+                "100m-goated-ads/SKILL.md"
+            ],
+            "category": "semantic",
+            "difficulty": "medium"
+        },
+        {
+            "id": "q12",
+            "query": "cold outreach referrals affiliates",
+            "expected": [
+                "100m-leads/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q13",
+            "query": "marketing machine lifecycle ads",
+            "expected": [
+                "100m-marketing-machine/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q14",
+            "query": "business revenue models monetization",
+            "expected": [
+                "100m-money-models/SKILL.md"
+            ],
+            "category": "semantic",
+            "difficulty": "medium"
+        },
+        {
+            "id": "q15",
+            "query": "reduce churn increase retention upsell",
+            "expected": [
+                "100m-ltv/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q16",
+            "query": "lost chapters bonus content hormozi",
+            "expected": [
+                "100m-lost-chapters/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        },
+        {
+            "id": "q17",
+            "query": "value innovation strategy canvas",
+            "expected": [
+                "blue-ocean-strategist/SKILL.md"
+            ],
+            "category": "semantic",
+            "difficulty": "medium"
+        },
+        {
+            "id": "q18",
+            "query": "noncustomers market boundaries",
+            "expected": [
+                "blue-ocean-strategist/SKILL.md"
+            ],
+            "category": "exact-keyword",
+            "difficulty": "easy"
+        }
+    ]
+}

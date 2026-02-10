@@ -9,7 +9,7 @@ import { loadConfig } from '../utils/config.js';
 import { parseDate } from '../utils/date-parse.js';
 import { basename } from 'node:path';
 import { formatCsv, formatXml, formatMarkdown, formatFiles } from '../utils/formatters.js';
-import { estimateTokens } from '../utils/token-estimator.js';
+import { estimateTokens, truncateToTokenBudget } from '../utils/token-estimator.js';
 
 export function registerSearchCommand(program: Command): void {
   program
@@ -21,6 +21,8 @@ export function registerSearchCommand(program: Command): void {
     .option('--explain', 'Show per-result score breakdown')
     .option('--collection <name>', 'Filter by collection')
     .option('--compact', 'Compact output for LLM consumption')
+    .option('--digest', 'Ultra-compact output (file:lines only, no content)')
+    .option('--budget <tokens>', 'Max token budget for returned results')
     .option('--timeline <chunkId>', 'Show timeline context around a chunk')
     .option('--after <date>', 'Filter results modified after date (e.g. 7d, 2w, 2025-01-15)')
     .option('--before <date>', 'Filter results modified before date (e.g. 30d, 2025-06-01)')
@@ -36,6 +38,8 @@ export function registerSearchCommand(program: Command): void {
       explain?: boolean;
       collection?: string;
       compact?: boolean;
+      digest?: boolean;
+      budget?: string;
       timeline?: string;
       after?: string;
       before?: string;
@@ -120,8 +124,8 @@ export function registerSearchCommand(program: Command): void {
           }
 
           if (options.format === 'json') {
-             console.log(JSON.stringify({ timeline: chunks }, null, 2));
-             return;
+            console.log(JSON.stringify({ timeline: chunks }, null, 2));
+            return;
           }
 
           console.log(chalk.cyan(`Timeline Context for Chunk #${chunkId}:\n`));
@@ -149,12 +153,12 @@ export function registerSearchCommand(program: Command): void {
         };
         const onStage = showStatus
           ? (stage: string) => {
-              if (stage === 'Done') {
-                clearStatus();
-              } else {
-                process.stderr.write(`\r${chalk.dim(stage)}`);
-              }
+            if (stage === 'Done') {
+              clearStatus();
+            } else {
+              process.stderr.write(`\r${chalk.dim(stage)}`);
             }
+          }
           : undefined;
 
         const results = await search(query, config, onStage, options.mode as any);
@@ -195,8 +199,19 @@ export function registerSearchCommand(program: Command): void {
 
         db.close();
 
+        // Apply token budget truncation
+        let budgetMeta: { truncated: boolean; totalTokens: number } | undefined;
+        if (options.budget) {
+          const budgetLimit = parseInt(options.budget, 10);
+          if (Number.isFinite(budgetLimit) && budgetLimit > 0) {
+            const { results: budgeted, totalTokens, truncated } = truncateToTokenBudget(filteredResults, budgetLimit);
+            filteredResults = budgeted;
+            budgetMeta = { truncated, totalTokens };
+          }
+        }
+
         if (filteredResults.length === 0) {
-          if (options.format === 'json') {
+          if (options.format === 'json' || options.compact || options.digest) {
             console.log(JSON.stringify({ query, results: [] }));
           } else {
             console.log(chalk.yellow('No matches found.'));
@@ -204,7 +219,15 @@ export function registerSearchCommand(program: Command): void {
           return;
         }
 
-        if (options.format === 'csv') {
+        if (options.digest) {
+          // Ultra-compact: file:lines only, no content — agents drill down with `memory get`
+          const digest = filteredResults.map(r => ({
+            id: r.chunkId,
+            file: r.file,
+            lines: [r.lineStart, r.lineEnd],
+          }));
+          console.log(JSON.stringify({ results: digest, ...(budgetMeta ? { budget: budgetMeta } : {}) }));
+        } else if (options.format === 'csv') {
           console.log(formatCsv(filteredResults));
         } else if (options.format === 'xml') {
           console.log(formatXml(filteredResults, query));
@@ -214,21 +237,31 @@ export function registerSearchCommand(program: Command): void {
           console.log(formatFiles(filteredResults));
         } else if (options.format === 'json' || options.compact) {
           if (options.compact) {
-            // Compact output for LLM
-            const compact = filteredResults.map(r => ({
-              id: r.chunkId,
-              file: r.file,
-              score: Number(r.score.toFixed(3)),
-              lines: [r.lineStart, r.lineEnd],
-              tokens: estimateTokens(r.snippet)
-            }));
+            // Compact output for LLM with token counts
+            let totalTokens = 0;
+            const compact = filteredResults.map(r => {
+              const tokens = estimateTokens(r.snippet);
+              totalTokens += tokens;
+              return {
+                id: r.chunkId,
+                file: r.file,
+                score: Number(r.score.toFixed(3)),
+                lines: [r.lineStart, r.lineEnd],
+                tokens,
+              };
+            });
 
-            console.log(JSON.stringify({ results: compact }));
+            console.log(JSON.stringify({
+              results: compact,
+              totalTokens,
+              ...(budgetMeta ? { budget: budgetMeta } : {}),
+            }));
           } else {
             // Full JSON output
             console.log(JSON.stringify({
               query,
               results: filteredResults,
+              ...(budgetMeta ? { budget: budgetMeta } : {}),
             }, null, 2));
           }
         } else {

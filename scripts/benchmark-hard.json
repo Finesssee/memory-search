@@ -1,0 +1,216 @@
+{
+  "name": "memory-search-benchmark-hard",
+  "k": 5,
+  "queries": [
+    {
+      "id": "s1",
+      "query": "how did I set up scoped memory in claude code",
+      "expected": [
+        "session-2026-02-03T112406.md",
+        "session-2026-02-06T141057.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "hard"
+    },
+    {
+      "id": "s2",
+      "query": "what was the kiro cli bug and how did I debug it",
+      "expected": [
+        "session-2026-02-06T123502.md",
+        "session-2026-02-06T130027.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "hard"
+    },
+    {
+      "id": "s3",
+      "query": "claude code session for leadgen project",
+      "expected": [
+        "2026-01-28_code-leadgen_6191a986.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "medium"
+    },
+    {
+      "id": "s4",
+      "query": "checkpoint session progress",
+      "expected": [
+        "session-2026-01-16T171000.md",
+        "session-2026-01-16T110200.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "medium"
+    },
+    {
+      "id": "s5",
+      "query": "where did I document cloudant lite 1gb forever free with credit card verification",
+      "expected": [
+        "session-2025-12-16T184742.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "hard"
+    },
+    {
+      "id": "s6",
+      "query": "test-memory.md appliesTo globs /memory command output three memory sources",
+      "expected": [
+        "session-2026-02-06T141057.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "hard"
+    },
+    {
+      "id": "s7",
+      "query": "archived session manim scenes security fixes",
+      "expected": [
+        "2026-01-30_archived_ee0e8744.md"
+      ],
+      "notes": "session-memory",
+      "difficulty": "medium"
+    },
+    {
+      "id": "c1",
+      "query": "increase prices ltv action step maximize profit",
+      "expected": [
+        "02-increase-prices.md",
+        "05-increase-prices.md"
+      ],
+      "notes": "cross-domain",
+      "difficulty": "medium"
+    },
+    {
+      "id": "c2",
+      "query": "testing hooks writing hooks from winners paid ads content",
+      "expected": [
+        "04-writing-hooks-from-winners.md"
+      ],
+      "notes": "cross-domain",
+      "difficulty": "medium"
+    },
+    {
+      "id": "c3",
+      "query": "in-person to remote ratio of customers per employee",
+      "expected": [
+        "06-decrease-costs.md",
+        "03-decrease-costs.md"
+      ],
+      "notes": "cross-domain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "c4",
+      "query": "search bar ctrl k showcase projects",
+      "expected": [
+        "Notes_lol (2).md",
+        "Notes_lol (1).md"
+      ],
+      "notes": "cross-domain",
+      "difficulty": "hard"
+    },
+    {
+      "id": "v1",
+      "query": "that thing about making offers people cant refuse",
+      "expected": [
+        "02-free-promotions.md",
+        "03-discount-promotions.md",
+        "lol (70).md"
+      ],
+      "notes": "vague-natural-language",
+      "difficulty": "hard"
+    },
+    {
+      "id": "v2",
+      "query": "manim library mathematical animation videos",
+      "expected": [
+        "2026-01-30_archived_ee0e8744.md"
+      ],
+      "notes": "vague-natural-language",
+      "difficulty": "medium"
+    },
+    {
+      "id": "v3",
+      "query": "where was that mcp server marketplace research note",
+      "expected": [
+        "2025-08-26_do a research in mcp server marketplace, tell me what is standing out the most_873cfee9.md"
+      ],
+      "notes": "vague-natural-language",
+      "difficulty": "hard"
+    },
+    {
+      "id": "v4",
+      "query": "the first-principles note about architecture assumptions and constraints",
+      "expected": [
+        "2025-12-17_let understand first principles_16bf3e94.md"
+      ],
+      "notes": "vague-natural-language",
+      "difficulty": "hard"
+    },
+    {
+      "id": "t1",
+      "query": "typescript scrape engine interface",
+      "expected": [
+        "2025-06-15_Firecrawl vs Exa MCP_11557031.md"
+      ],
+      "notes": "specific-technical",
+      "difficulty": "medium"
+    },
+    {
+      "id": "t2",
+      "query": "dispatch failure login in kiro cli",
+      "expected": [
+        "session-2026-02-06T123502.md",
+        "session-2026-02-06T130027.md"
+      ],
+      "notes": "specific-technical",
+      "difficulty": "hard"
+    },
+    {
+      "id": "t3",
+      "query": "manim scenes security fixes command injection hardcoded api key websocket auth path traversal",
+      "expected": [
+        "2026-01-30_archived_ee0e8744.md"
+      ],
+      "notes": "specific-technical",
+      "difficulty": "medium"
+    },
+    {
+      "id": "t4",
+      "query": "cloudant lite 1gb forever free credit card verify identity official statement",
+      "expected": [
+        "session-2025-12-16T184742.md"
+      ],
+      "notes": "specific-technical",
+      "difficulty": "hard"
+    },
+    {
+      "id": "e1",
+      "query": "kiro",
+      "expected": [
+        "session-2026-02-06T130027.md",
+        "session-2026-02-06T123502.md"
+      ],
+      "notes": "edge-case-single-word",
+      "difficulty": "hard"
+    },
+    {
+      "id": "e2",
+      "query": "scpoed memry",
+      "expected": [
+        "session-2026-02-03T104414.md",
+        "lol (48).md"
+      ],
+      "notes": "edge-case-typo",
+      "difficulty": "hard"
+    },
+    {
+      "id": "e3",
+      "query": "i need the exact note where i documented setting memory user and appliesTo globs in claude code and verified /memory output with three memory sources",
+      "expected": [
+        "session-2026-02-06T141057.md",
+        "session-2026-02-03T112406.md"
+      ],
+      "notes": "edge-case-long-query",
+      "difficulty": "hard"
+    }
+  ]
+}

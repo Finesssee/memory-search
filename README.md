@@ -80,6 +80,8 @@ memory search "design" --type architecture     # Filter by observation type
 memory search "auth" --concept "JWT"           # Filter by concept tag
 memory search "overview" --layer 1             # Compact progressive retrieval
 memory search "data" --format csv              # CSV output
+memory search "auth" --digest                  # Ultra-compact file:lines only
+memory search "deploy" --budget 500            # Cap results at 500 tokens
 
 # Get
 memory get 42                                   # By numeric chunk ID
@@ -123,9 +125,10 @@ memory import backup.json                       # Restore
 - [Configuration](docs/configuration.md) — config fields, env vars, collections, path contexts
 - [Embedding API](docs/embed-api.md) — endpoint contracts, Cloudflare deploy, local server setup
 - [Agent Integration](docs/agent-integration.md) — Claude Code skill, key commands, facts, privacy tags
+- [Token Efficiency](docs/token-efficiency.md) — minimize token usage with progressive retrieval and budgets
 - [Best Practices](docs/best-practices.md) — chunking, indexing, searching, reranking tips
 - [Architecture](docs/architecture.md) — pipeline diagram, design decisions, references
-- [Benchmarking](docs/benchmarking.md) — eval framework, metrics, custom benchmarks
+- [Benchmarking](docs/benchmarking.md) — eval framework, metrics, regression detection, CI integration
 
 ## Architecture
 

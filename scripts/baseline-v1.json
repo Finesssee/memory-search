@@ -1,0 +1,59 @@
+{
+  "benchmark": "memory-search-benchmark",
+  "k": 5,
+  "timestamp": "2026-02-10T08:58:03.562Z",
+  "configs": [
+    {
+      "config": "baseline",
+      "avgNDCG": 2.346580807573508,
+      "avgMRR": 0.9722222222222222,
+      "avgRecall": 1,
+      "avgPrecision": 0.8222222222222223,
+      "avgLatencyMs": 1466,
+      "totalTokens": 6829,
+      "avgTokensPerQuery": 379,
+      "queryCount": 18,
+      "categories": [
+        {
+          "category": "semantic",
+          "avgNDCG": 2.6429646200015284,
+          "avgMRR": 1,
+          "avgRecall": 1,
+          "avgPrecision": 0.96,
+          "avgLatencyMs": 1504.4,
+          "avgTokens": 380,
+          "queryCount": 5
+        },
+        {
+          "category": "natural-language",
+          "avgNDCG": 2.5616063116448506,
+          "avgMRR": 1,
+          "avgRecall": 1,
+          "avgPrecision": 0.8,
+          "avgLatencyMs": 1505,
+          "avgTokens": 380,
+          "queryCount": 1
+        },
+        {
+          "category": "exact-keyword",
+          "avgNDCG": 2.205168760389222,
+          "avgMRR": 0.9583333333333334,
+          "avgRecall": 1,
+          "avgPrecision": 0.7666666666666666,
+          "avgLatencyMs": 1446.6666666666667,
+          "avgTokens": 379.0833333333333,
+          "queryCount": 12
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "avgNDCG": 2.346580807573508,
+    "avgMRR": 0.9722222222222222,
+    "avgRecall": 1,
+    "avgPrecision": 0.8222222222222223,
+    "totalQueries": 18,
+    "totalTokens": 6829,
+    "avgLatencyMs": 1466
+  }
+}

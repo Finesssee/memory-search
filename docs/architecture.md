@@ -1,36 +1,80 @@
 # Architecture
 
+## Search Pipeline
+
+```mermaid
+flowchart LR
+    Q[Query] --> E{Expand?}
+    E -->|yes| EX[LLM Expander<br/>+ HyDE]
+    E -->|no| EM[BGE Embed<br/>768d]
+    EX --> EM
+    EM --> P["Parallel Retrieval"]
+    P --> BM["BM25<br/>(FTS5)"]
+    P --> VS["Vector<br/>(sqlite-vec)"]
+    BM --> RRF[RRF Fusion]
+    VS --> RRF
+    RRF --> RR["Cross-Encoder<br/>Reranker"]
+    RR --> R[Results]
 ```
-Query
-  → Expander (optional LLM + HyDE)
-  → BGE embedding (768d)
-  → Parallel: BM25 keyword search + Vector cosine similarity
-  → Weighted RRF fusion
-  → Cross-encoder reranker (bge-reranker-base)
-  → Blended final scores
-  → Results
+
+## Indexing Pipeline
+
+```mermaid
+flowchart LR
+    F[Files] --> C[Chunker<br/>markdown-aware]
+    C --> CTX{Contextualize?}
+    CTX -->|yes| LLM[LLM Context<br/>Prefix]
+    CTX -->|no| EMB[BGE Embed]
+    LLM --> EMB
+    EMB --> DB[(SQLite<br/>+ sqlite-vec)]
 ```
+
+## Progressive Retrieval
+
+Agents retrieve context in layers, each returning progressively more detail:
+
+```mermaid
+flowchart LR
+    L1["Layer 1: --digest<br/>file:lines only"] -->|drill down| L2["Layer 2: --compact<br/>metadata + tokens"]
+    L2 -->|drill down| L3["Layer 3: memory get<br/>full content"]
+```
+
+This follows the [Vercel filesystem agent pattern](https://vercel.com/blog/we-removed-80-percent-of-our-agents-tools): return only the slices of context the agent needs, rather than dumping everything into the prompt. Their approach achieved 37% fewer tokens and 3.5x faster responses.
 
 ## Components
 
-- **Database:** SQLite with sqlite-vec for vector indexing
-- **Embeddings:** Cloudflare Workers AI (`@cf/baai/bge-base-en-v1.5`, 768 dimensions)
-- **Reranker:** Cloudflare Workers AI (`@cf/baai/bge-reranker-base`, cross-encoder)
-- **Caching:** Query embeddings and reranker scores cached in SQLite
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| Database | SQLite + sqlite-vec | Single-file storage, vector indexing |
+| Embeddings | Cloudflare Workers AI (`bge-base-en-v1.5`, 768d) | Semantic similarity |
+| Reranker | Cloudflare Workers AI (`bge-reranker-base`) | Cross-encoder scoring |
+| Caching | SQLite tables | Query embeddings + reranker scores |
+| Local LLM | node-llama-cpp (optional) | On-device embeddings, reranking, generation |
 
-## Design decisions
+## Design Decisions
 
-- **Hybrid BM25 + vector** rather than vector-only — BM25 catches exact keyword matches that embeddings miss, especially for technical terms, error codes, and proper nouns
-- **RRF fusion** over learned fusion — Reciprocal Rank Fusion is simple, parameter-free, and works well when combining two ranked lists of different scales
-- **Cross-encoder reranker** over bi-encoder reranker — cross-encoders score query-document pairs together (not independently), producing more accurate relevance judgments at the cost of not being cacheable by document alone
-- **SQLite single-file DB** over dedicated vector databases — for personal knowledge bases (tens of thousands of chunks), sqlite-vec is fast enough and eliminates infrastructure complexity
-- **Cloudflare Workers AI** over local models — keeps the CLI lightweight with no GPU requirement; the worker is free-tier eligible
+| Decision | Alternative | Why |
+|----------|------------|-----|
+| Hybrid BM25 + vector | Vector-only | BM25 catches exact keywords, error codes, proper nouns that embeddings miss |
+| RRF fusion | Learned fusion | Parameter-free, works well combining ranked lists of different scales |
+| Cross-encoder reranker | Bi-encoder | Scores query-document pairs together for more accurate relevance |
+| SQLite single-file | Dedicated vector DB | For personal KBs (tens of thousands of chunks), sqlite-vec is fast enough — no infra complexity |
+| Cloudflare Workers AI | Local models | Lightweight CLI with no GPU requirement; worker is free-tier eligible |
+| Token budget control | Unbounded results | Agents can cap context cost with `--budget` to avoid filling context windows |
 
-## References and prior art
+## Token Efficiency Architecture
 
-memory-search draws from several projects and research:
+memory-search is designed around a key insight from Vercel's bash-tool: **context windows fill up fast when you include large amounts of text**. The architecture provides three output tiers:
 
-- **[Anthropic — Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval)** — The hybrid BM25 + embedding + reranking pipeline is directly inspired by this work, which showed that combining contextual embeddings with BM25 reduces retrieval failure by 49%, and adding a reranker pushes that to 67%
-- **[Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents)** — The augmented LLM pattern (retrieval + tools + memory) and the principle of starting simple before adding complexity shaped the overall architecture
-- **[qmd](https://github.com/tobi/qmd)** by Tobi Lutke — An on-device search engine for personal docs using hybrid search with query expansion, RRF fusion, and local GGUF models via node-llama-cpp. memory-search shares the same hybrid pipeline philosophy but trades local models for Cloudflare Workers AI to avoid GPU requirements
-- **[claude-mem](https://github.com/thedotmack/claude-mem)** — A Claude Code plugin that auto-captures session context with hybrid semantic + keyword search over SQLite and Chroma. memory-search takes a similar approach to session capture but uses a single SQLite database (with sqlite-vec) instead of a separate vector DB
+1. **`--digest`** — File references only (~10 tokens/result). Agents decide what to expand.
+2. **`--compact`** — Metadata with token counts (~30 tokens/result). Agents see cost before requesting content.
+3. **`--budget N`** — Hard cap. Results included until token budget exhausted.
+
+## References
+
+- [Anthropic — Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval) — hybrid BM25 + embedding + reranking reduces retrieval failure by 49%, reranker pushes to 67%
+- [Anthropic — Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents) — augmented LLM pattern
+- [Vercel — We removed 80% of our agent's tools](https://vercel.com/blog/we-removed-80-percent-of-our-agents-tools) — filesystem agent pattern, token reduction
+- [Vercel — bash-tool](https://vercel.com/changelog/introducing-bash-tool-for-filesystem-based-context-retrieval) — filesystem-based context retrieval
+- [qmd](https://github.com/tobi/qmd) by Tobi Lutke — on-device hybrid search with RRF
+- [claude-mem](https://github.com/thedotmack/claude-mem) — session capture with hybrid search
