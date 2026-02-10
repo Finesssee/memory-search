@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { MemoryDB } from '../storage/db.js';
 import { loadConfig } from '../utils/config.js';
+import { isVirtualPath, fromVirtualPath } from '../utils/paths.js';
 
 export function registerGetCommand(program: Command): void {
   program
@@ -59,6 +60,30 @@ export function registerGetCommand(program: Command): void {
 }
 
 function resolveIdentifier(identifier: string, db: MemoryDB): Array<any> {
+  // Check for virtual path (memory://collection/path)
+  if (isVirtualPath(identifier)) {
+    // Try direct lookup by virtual_path column
+    const chunks = db.getChunksByVirtualPath(identifier);
+    if (chunks.length > 0) return chunks;
+
+    // Fall back to resolving to absolute path
+    const config = loadConfig();
+    const collections = [
+      ...(config.sources?.length ? [{ name: 'default', paths: config.sources }] : []),
+      ...(config.collections ?? []),
+    ];
+    const resolved = fromVirtualPath(identifier, collections);
+    if (resolved) {
+      // Normalize to backslash for Windows path matching
+      const normalizedResolved = resolved.replace(/\//g, '\\');
+      const byPath = db.getChunksByFilePath(normalizedResolved);
+      if (byPath.length > 0) return byPath;
+      // Try forward-slash variant too
+      return db.getChunksByFilePath(resolved);
+    }
+    return [];
+  }
+
   // Check for comma-separated or glob pattern (Feature 3)
   if (identifier.includes(',') || identifier.includes('*') || identifier.includes('?')) {
     return resolvePattern(identifier, db);

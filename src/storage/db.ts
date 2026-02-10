@@ -82,6 +82,7 @@ export class MemoryDB {
     addColumn('chunks', 'content_hash', 'TEXT');
     addColumn('chunks', 'context_prefix', 'TEXT');
     addColumn('chunks', 'short_id', 'TEXT');
+    addColumn('files', 'virtual_path', 'TEXT');
 
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_session ON chunks(session_id)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_short_id ON chunks(short_id)');
@@ -241,18 +242,19 @@ export class MemoryDB {
     };
   }
 
-  upsertFile(path: string, mtime: number, contentHash: string): number {
+  upsertFile(path: string, mtime: number, contentHash: string, virtualPath?: string): number {
     const now = Date.now();
     const stmt = this.db.prepare(`
-      INSERT INTO files (path, mtime, content_hash, indexed_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO files (path, mtime, content_hash, indexed_at, virtual_path)
+      VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(path) DO UPDATE SET
         mtime = excluded.mtime,
         content_hash = excluded.content_hash,
-        indexed_at = excluded.indexed_at
+        indexed_at = excluded.indexed_at,
+        virtual_path = excluded.virtual_path
     `);
 
-    stmt.run(path, mtime, contentHash, now);
+    stmt.run(path, mtime, contentHash, now, virtualPath ?? null);
 
     const row = this.db.prepare('SELECT id FROM files WHERE path = ?').get(path) as { id: number };
     return row.id;
@@ -551,6 +553,27 @@ export class MemoryDB {
       WHERE f.path = ?
       ORDER BY c.chunk_index
     `).all(filePath) as Array<{
+      id: number; file_id: number; chunk_index: number; content: string;
+      line_start: number; line_end: number; embedding: Buffer;
+      file_path: string; content_hash: string | null;
+    }>;
+
+    return rows.map(row => ({
+      id: row.id, fileId: row.file_id, chunkIndex: row.chunk_index,
+      content: row.content, lineStart: row.line_start, lineEnd: row.line_end,
+      embedding: new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.length / 4),
+      filePath: row.file_path, contentHash: row.content_hash ?? hashContent(row.content),
+    }));
+  }
+
+  getChunksByVirtualPath(virtualPath: string): (ChunkRecord & { filePath: string })[] {
+    const rows = this.db.prepare(`
+      SELECT c.*, f.path as file_path
+      FROM chunks c
+      JOIN files f ON c.file_id = f.id
+      WHERE f.virtual_path = ?
+      ORDER BY c.chunk_index
+    `).all(virtualPath) as Array<{
       id: number; file_id: number; chunk_index: number; content: string;
       line_start: number; line_end: number; embedding: Buffer;
       file_path: string; content_hash: string | null;

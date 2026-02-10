@@ -12,6 +12,7 @@ import { isShutdownRequested } from '../utils/shutdown.js';
 import type { Config } from '../types.js';
 import { detectObservationType } from './observation-detector.js';
 import { extractConcepts } from './concept-extractor.js';
+import { toVirtualPath } from '../utils/paths.js';
 
 const BATCH_SIZE = 100;
 const FILE_SCAN_CONCURRENCY = 50;  // Parallel file reads during scan phase
@@ -33,6 +34,14 @@ export async function indexFiles(
   let skipped = 0;
   let pruned = 0;
   let contextualized = 0;
+
+  // Try to create a real tokenizer for local LLM provider
+  let tokenizer: ((text: string) => number) | undefined;
+  if (config.provider === 'local') {
+    const { createTokenCounter } = await import('../utils/token-estimator.js');
+    const counter = await createTokenCounter();
+    if (counter) tokenizer = counter;
+  }
 
   try {
     // Normalize config to collections
@@ -97,6 +106,19 @@ export async function indexFiles(
     }
     const work: FileWork[] = [];
 
+    // Helper to compute virtual path for a file given its collection membership
+    const computeVirtualPath = (normalizedPath: string, collectionNames: string[]): string | undefined => {
+      if (collectionNames.length === 0) return undefined;
+      const collName = collectionNames[0];
+      const coll = collections.find(c => c.name === collName);
+      if (!coll) return undefined;
+      for (const root of coll.paths) {
+        const vp = toVirtualPath(normalizedPath, collName, root);
+        if (vp !== normalizedPath) return vp;
+      }
+      return undefined;
+    };
+
     // Process files in parallel batches for faster scanning
     const processFile = (i: number) => {
       const file = files[i];
@@ -131,7 +153,7 @@ export async function indexFiles(
         const contentHash = hashContent(content);
 
         if (!options.force && existing && existing.contentHash === contentHash) {
-          db.upsertFile(normalizedPath, mtime, contentHash);
+          db.upsertFile(normalizedPath, mtime, contentHash, computeVirtualPath(normalizedPath, collectionNames));
           db.clearFileCollections(existing.id);
           for (const name of collectionNames) {
             const collectionId = db.upsertCollection(name);
@@ -144,14 +166,15 @@ export async function indexFiles(
         const chunks = chunkMarkdown(content, {
           maxTokens: config.chunkMaxTokens,
           overlapTokens: config.chunkOverlapTokens,
-          filePath: normalizedPath
+          filePath: normalizedPath,
+          tokenizer
         });
 
         if (chunks.length === 0) {
           const existingFile = db.getFile(normalizedPath);
           if (existingFile) {
             db.deleteChunksForFile(existingFile.id);
-            db.upsertFile(normalizedPath, mtime, contentHash);
+            db.upsertFile(normalizedPath, mtime, contentHash, computeVirtualPath(normalizedPath, collectionNames));
             db.clearFileCollections(existingFile.id);
             for (const name of collectionNames) {
               const collectionId = db.upsertCollection(name);
@@ -275,7 +298,22 @@ export async function indexFiles(
 
             // Upsert file on first chunk
             if (chunkIdx === 0) {
-              const fileId = db.upsertFile(w.normalizedPath, w.mtime, w.contentHash);
+              // Compute virtual path from collection membership
+              let virtualPath: string | undefined;
+              if (w.collectionNames.length > 0) {
+                const collName = w.collectionNames[0];
+                const coll = collections.find(c => c.name === collName);
+                if (coll) {
+                  for (const root of coll.paths) {
+                    const vp = toVirtualPath(w.normalizedPath, collName, root);
+                    if (vp !== w.normalizedPath) {
+                      virtualPath = vp;
+                      break;
+                    }
+                  }
+                }
+              }
+              const fileId = db.upsertFile(w.normalizedPath, w.mtime, w.contentHash, virtualPath);
               db.deleteChunksForFile(fileId);
 
               // Update collections
