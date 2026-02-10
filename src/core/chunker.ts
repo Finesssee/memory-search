@@ -14,6 +14,7 @@ export interface ChunkOptions {
   maxTokens?: number;
   overlapTokens?: number;
   filePath?: string; // For metadata injection
+  tokenizer?: (text: string) => number;
 }
 
 /**
@@ -69,10 +70,7 @@ export function chunkMarkdown(content: string, options: ChunkOptions | number = 
   let chunkStartLine = 1;
   let overlapBuffer: string[] = []; // Store lines for overlap
 
-  const estimateTokens = (text: string): number => {
-    // Conservative: ~3 chars per token
-    return text.length / 3;
-  };
+  const estimateTokens = options.tokenizer ?? ((text: string): number => text.length / 3);
 
   const extractHeadings = (headerLine: string, bodyText: string): string[] => {
     const headings: string[] = [];
