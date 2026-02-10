@@ -9,6 +9,8 @@ description: Search, index, and manage a personal knowledge base using the memor
 
 CLI tool for hybrid semantic + BM25 search over personal knowledge bases. Indexes markdown, text, and code files into a SQLite database with vector embeddings, then provides multi-modal search with cross-encoder reranking.
 
+Supports two providers: `api` (default, uses Cloudflare Workers) and `local` (on-device via `node-llama-cpp` with GGUF models). Files are addressable via portable `memory://collection/path` virtual URIs.
+
 ## Quick Start
 
 ```bash
@@ -68,6 +70,9 @@ memory get 42
 
 # By 6-char short ID (shown in search results)
 memory get a3f2c1
+
+# By virtual path (memory:// URI)
+memory get memory://docs/auth.md
 
 # By file path
 memory get docs/auth.md

@@ -36,6 +36,11 @@ Semantic search CLI for your personal knowledge base. Hybrid BM25 + vector searc
 - **Cursor IDE integration** — `memory cursor install` generates `.cursor/rules/` for Cursor
 - **Export/import** — backup and restore your entire database
 - **Agent skill** — bundled skill definition at `skill/memory-search/` for AI coding agents
+- **Local LLM execution** — optional on-device embeddings, reranking, and generation via `node-llama-cpp` with GGUF models
+- **Virtual path scheme** — portable `memory://collection/file.md` URIs for collection-relative addressing
+- **Token-perfect chunking** — uses real model tokenizer when local LLM is loaded, falls back to heuristic
+- **VRAM lifecycle management** — auto-disposes idle model contexts after configurable inactivity timeout
+- **OSC 9;4 terminal progress** — tab progress bars in Windows Terminal, iTerm2, and Hyper
 - **SQLite + sqlite-vec** — single-file database, no external vector DB needed
 
 ## Quick start
@@ -136,6 +141,7 @@ Query:  Query → Expander (optional) → BGE embed → BM25 + Vector (parallel)
 - **Cloudflare Workers AI** (included) — embeddings, reranking, and chat via the included worker (`workers/embed-api/`). Free tier eligible.
 - **Groq** — fast LLM inference for contextual retrieval (`--contextualize`). Configure as a `contextLlmEndpoints` slot.
 - **Any OpenAI-compatible endpoint** — the contextualizer and query expander work with any chat completions API.
+- **Local LLM** (`provider: "local"`) — on-device execution via `node-llama-cpp`. Uses embeddinggemma-300M for embeddings, qwen3-reranker-0.6b for reranking, and qmd-query-expansion-1.7B for generation. Models auto-download on first use. Install `node-llama-cpp` as an optional dependency.
 
 See [docs/architecture.md](docs/architecture.md) for details and design decisions.
 

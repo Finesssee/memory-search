@@ -11,6 +11,14 @@
   "searchTopK": 15,
   "searchCandidateCap": 300,
   "expandQueries": false,
+  "provider": "api",
+  "localLlm": {
+    "embedModel": "embeddinggemma-300M-Q8_0",
+    "rerankModel": "qwen3-reranker-0.6b-q8_0",
+    "generateModel": "qmd-query-expansion-1.7B-q4_k_m",
+    "modelCacheDir": "~/.cache/memory-search/models",
+    "inactivityTimeoutMs": 300000
+  },
   "collections": [
     {
       "name": "docs",
