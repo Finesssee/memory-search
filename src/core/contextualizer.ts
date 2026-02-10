@@ -66,8 +66,50 @@ async function generateContextBatch(
   docContent: string,
   chunkContents: string[],
   slot: ContextLlmSlot,
-  maxDocTokens: number
+  maxDocTokens: number,
+  config?: Config
 ): Promise<string[]> {
+  // Local LLM context generation
+  if (config?.provider === 'local') {
+    const { getLocalLlm, initLocalLlm } = await import('./local-llm.js');
+    let llm = getLocalLlm();
+    if (!llm) llm = await initLocalLlm(config.localLlm ?? {});
+    if (llm) {
+      const truncatedDoc = truncateDocument(docContent, maxDocTokens);
+      const chunksBlock = chunkContents
+        .map((c, i) => `<chunk index="${i}">\n${c}\n</chunk>`)
+        .join('\n');
+      const prompt = `<document>
+${truncatedDoc}
+</document>
+
+Here are ${chunkContents.length} chunks from this document. For each chunk, give a short succinct context (1-2 sentences) to situate it within the overall document for improving search retrieval.
+
+${chunksBlock}
+
+Respond with a JSON array of strings, one context per chunk, in order. Example: ["context for chunk 0", "context for chunk 1", ...]
+Respond ONLY with the JSON array, no other text.`;
+      try {
+        const text = await llm.complete(prompt);
+        if (text) {
+          const jsonMatch = text.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]) as string[];
+            if (Array.isArray(parsed)) {
+              return chunkContents.map((_, i) => {
+                const ctx = parsed[i];
+                if (!ctx || typeof ctx !== 'string' || ctx.length < 10 || ctx.length > 500) return '';
+                return ctx.trim();
+              });
+            }
+          }
+        }
+      } catch (err) {
+        logWarn('contextualizer', 'Local context generation failed, falling back to API', { error: errorMessage(err) });
+      }
+    }
+  }
+
   const truncatedDoc = truncateDocument(docContent, maxDocTokens);
 
   const chunksBlock = chunkContents
@@ -138,7 +180,8 @@ async function processSlotQueue(
   queue: { docContent: string; batch: { index: number; content: string; cacheKey: string }[] }[],
   results: string[],
   db: MemoryDB,
-  maxDocTokens: number
+  maxDocTokens: number,
+  config?: Config
 ): Promise<void> {
   const maxParallel = slot.parallelism ?? 3;
   let running = 0;
@@ -150,7 +193,8 @@ async function processSlotQueue(
       item.docContent,
       item.batch.map(b => b.content),
       slot,
-      maxDocTokens
+      maxDocTokens,
+      config
     );
 
     for (let j = 0; j < item.batch.length; j++) {
@@ -244,7 +288,7 @@ export async function contextualizeFileChunks(
   // Process all slot queues in parallel
   await Promise.all(
     slots.map((slot, i) =>
-      processSlotQueue(i, slot, slotQueues[i], results, db, maxDocTokens)
+      processSlotQueue(i, slot, slotQueues[i], results, db, maxDocTokens, config)
     )
   );
 

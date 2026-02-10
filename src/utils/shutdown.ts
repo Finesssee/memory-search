@@ -2,6 +2,17 @@
 
 let globalController = new AbortController();
 let shutdownRequested = false;
+const cleanupFns: Array<() => Promise<void>> = [];
+
+export function registerCleanup(fn: () => Promise<void>): void {
+  cleanupFns.push(fn);
+}
+
+async function runCleanup(): Promise<void> {
+  for (const fn of cleanupFns) {
+    try { await fn(); } catch { /* ignore cleanup errors */ }
+  }
+}
 
 export function getAbortSignal(): AbortSignal {
   return globalController.signal;
@@ -14,6 +25,7 @@ export function isShutdownRequested(): boolean {
 export function requestShutdown(): void {
   shutdownRequested = true;
   globalController.abort();
+  runCleanup();
 }
 
 export function resetShutdown(): void {

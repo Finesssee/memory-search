@@ -43,6 +43,8 @@ export const KNOWN_KEYS = new Set<string>([
   'contextLlmApiKey',
   'contextLlmEndpoints',
   'aiProviders',
+  'provider',
+  'localLlm',
 ]);
 
 const NUMERIC_RANGES: Record<string, [number, number]> = {
@@ -61,6 +63,7 @@ const STRING_FIELDS = new Set([
   'contextLlmEndpoint',
   'contextLlmModel',
   'contextLlmApiKey',
+  'provider',
 ]);
 
 const BOOLEAN_FIELDS = new Set([

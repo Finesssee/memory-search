@@ -52,6 +52,9 @@
     "glob": "^11.0.1",
     "sqlite-vec": "^0.1.7-alpha.2"
   },
+  "optionalDependencies": {
+    "node-llama-cpp": "^3.0.0"
+  },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.13.1",

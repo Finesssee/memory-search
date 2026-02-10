@@ -61,6 +61,14 @@ export async function getEmbeddingsBatch(
   texts: string[],
   config: Config
 ): Promise<Float32Array[]> {
+  if (config.provider === 'local') {
+    const { getLocalLlm, initLocalLlm } = await import('./local-llm.js');
+    let llm = getLocalLlm();
+    if (!llm) llm = await initLocalLlm(config.localLlm ?? {});
+    if (llm) return llm.embed(texts);
+    logWarn('embeddings', 'Local LLM not available, falling back to API');
+  }
+
   const response = await fetchWithRetry(config.embeddingEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

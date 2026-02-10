@@ -121,6 +121,47 @@ export async function rerankResults(
     return results.map(({ rrfRank: _, fullContent: __, contentHash: ____, ...rest }) => rest);
   }
 
+  // Local LLM reranking
+  if (config.provider === 'local') {
+    const { getLocalLlm, initLocalLlm } = await import('./local-llm.js');
+    let llm = getLocalLlm();
+    if (!llm) llm = await initLocalLlm(config.localLlm ?? {});
+    if (llm) {
+      try {
+        const documents = results.map(r => r.fullContent ?? r.snippet);
+        const ranked = await llm.rerank(query, documents);
+        const scoreMap = new Map<number, number>();
+        for (const item of ranked) {
+          scoreMap.set(item.index, normalizeRerankerScore(item.score));
+        }
+        const normalizedScores = minMaxNormalizeScores(scoreMap);
+        const blendedResults = results.map((original, index) => {
+          const rerankerRawScore = scoreMap.get(index) ?? 0;
+          const rerankerScore = normalizedScores.get(index) ?? 0;
+          const rrfRank = original.rrfRank ?? index + 1;
+          const weights = getBlendWeights(rrfRank);
+          const retrievalScore = clamp01(original.score);
+          const blendedScore = weights.retrieval * retrievalScore + weights.reranker * rerankerScore;
+          const { rrfRank: _, fullContent: __, contentHash: ____, ...rest } = original;
+          return {
+            ...rest,
+            chunkId: original.chunkId,
+            explain: {
+              ...original.explain,
+              rerankerRawScore,
+              rerankerScore,
+              rerankerWeights: weights,
+            },
+            score: blendedScore,
+          };
+        });
+        return blendedResults.sort((a, b) => b.score - a.score);
+      } catch (err) {
+        logWarn('reranker', 'Local reranking failed, falling back to API', { error: errorMessage(err) });
+      }
+    }
+  }
+
   const cache = new RerankCache(config);
   const model = 'bge-reranker-v1'; // Cache key for bge-reranker-base cross-encoder
   const queryHash = hashContent(query);

@@ -143,6 +143,59 @@ export async function expandQueryStructured(
   const cached = expansionCache.get(cacheKey);
   if (cached) return cached;
 
+  // Local LLM query expansion
+  if (config.provider === 'local') {
+    const { getLocalLlm, initLocalLlm } = await import('./local-llm.js');
+    let llm = getLocalLlm();
+    if (!llm) llm = await initLocalLlm(config.localLlm ?? {});
+    if (llm) {
+      try {
+        let contextBlock = '';
+        if (contextHints.length > 0) {
+          contextBlock = `\nContext Information:\n${contextHints.map(h => `- ${h}`).join('\n')}\n`;
+        }
+
+        const prompt = `Given this search query${contextHints.length > 0 ? ' and context' : ''}, generate optimized variations.
+${contextBlock}
+Query: "${query}"
+
+Respond in this exact JSON format:
+{
+  "lex": ["keyword variation 1", "keyword variation 2"],
+  "vec": ["semantic variation 1", "semantic variation 2"],
+  "hyde": "A 2-3 sentence hypothetical answer to the query"
+}
+
+Rules:
+- lex: 2 keyword-focused queries (exact terms, acronyms, synonyms)
+- vec: 2 semantic queries (rephrased for meaning, context)
+- hyde: A plausible answer as if you knew it
+
+JSON only, no markdown:`;
+
+        const text = await llm.complete(prompt);
+        if (text) {
+          const jsonMatch = text.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]) as { lex?: string[]; vec?: string[]; hyde?: string };
+            const rawLex = Array.isArray(parsed.lex) ? parsed.lex.slice(0, 2) : [];
+            const rawVec = Array.isArray(parsed.vec) ? parsed.vec.slice(0, 2) : [];
+            const rawHyde = typeof parsed.hyde === 'string' ? parsed.hyde : '';
+            const filteredLex = filterDriftedQueries(query, rawLex);
+            const filteredVec = filterDriftedQueries(query, rawVec);
+            const hydeCandidate = rawHyde.trim().replace(/\s+/g, ' ');
+            const hyde = hydeCandidate.length >= 20 && hydeCandidate.length <= 500 ? hydeCandidate : '';
+            const result: ExpandedQueries = { original: query, lex: filteredLex, vec: filteredVec, hyde };
+            expansionCache.set(cacheKey, result);
+            return result;
+          }
+        }
+      } catch {
+        // Fall through to API-based expansion
+      }
+    }
+  }
+
   const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
 
   let contextBlock = '';

@@ -44,6 +44,14 @@ export interface Config {
   contextLlmApiKey?: string;
   contextLlmEndpoints?: ContextLlmSlot[];
   aiProviders?: AIProvider[];
+  provider?: 'api' | 'local';
+  localLlm?: {
+    embedModel?: string;
+    rerankModel?: string;
+    generateModel?: string;
+    modelCacheDir?: string;
+    inactivityTimeoutMs?: number;
+  };
 }
 
 export interface PathContext {
