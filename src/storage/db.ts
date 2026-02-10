@@ -83,6 +83,7 @@ export class MemoryDB {
     addColumn('chunks', 'context_prefix', 'TEXT');
     addColumn('chunks', 'short_id', 'TEXT');
     addColumn('files', 'virtual_path', 'TEXT');
+    addColumn('sessions', 'prompt_count', 'INTEGER DEFAULT 0');
 
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_session ON chunks(session_id)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_chunks_short_id ON chunks(short_id)');
@@ -805,6 +806,34 @@ export class MemoryDB {
 
   incrementSessionCaptureCount(id: string): void {
     this.db.prepare('UPDATE sessions SET capture_count = capture_count + 1 WHERE id = ?').run(id);
+  }
+
+  incrementSessionPromptCount(id: string): void {
+    this.db.prepare('UPDATE sessions SET prompt_count = COALESCE(prompt_count, 0) + 1 WHERE id = ?').run(id);
+  }
+
+  setSessionSummary(id: string, summary: string): void {
+    this.db.prepare('UPDATE sessions SET summary = ? WHERE id = ?').run(summary, id);
+  }
+
+  getRecentSessions(limit = 5): Session[] {
+    const rows = this.db.prepare(
+      'SELECT * FROM sessions WHERE summary IS NOT NULL ORDER BY started_at DESC LIMIT ?'
+    ).all(limit) as Array<{
+      id: string;
+      started_at: number;
+      project_path: string;
+      summary: string | null;
+      capture_count: number;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      startedAt: row.started_at,
+      projectPath: row.project_path,
+      summary: row.summary ?? undefined,
+      captureCount: row.capture_count,
+    }));
   }
 
   getChunksBySessionId(sessionId: string): (ChunkRecord & { filePath: string })[] {
