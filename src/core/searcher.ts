@@ -7,6 +7,7 @@ import { findTopK } from '../utils/cosine.js';
 import { rerankResults } from './reranker.js';
 import { expandQueryStructured } from './expander.js';
 import { resolveContextForPath } from '../utils/context-resolver.js';
+import { correctQuery } from './spell-corrector.js';
 import type { Config, SearchResult } from '../types.js';
 
 const RRF_K = 60; // RRF constant (commonly 60)
@@ -42,6 +43,15 @@ export async function search(
   const finalTopK = Math.max(1, config.searchTopK);
 
   try {
+    // Spell correction — fix typos using the FTS vocabulary
+    let searchQuery = query;
+    const { corrected, corrections } = correctQuery(query, db);
+    if (corrections.length > 0) {
+      searchQuery = corrected;
+      const fixedTerms = corrections.map(c => `"${c.original}" → "${c.replacement}"`).join(', ');
+      onStage?.(`Corrected: ${fixedTerms}`);
+    }
+
     // Build list of queries with weights and types
     interface QueryItem {
       text: string;
@@ -50,8 +60,13 @@ export async function search(
     }
 
     const queries: QueryItem[] = [
-      { text: query, weight: ORIGINAL_WEIGHT, type: 'original' },
+      { text: searchQuery, weight: ORIGINAL_WEIGHT, type: 'original' },
     ];
+
+    // Also search with original uncorrected query if corrections were made
+    if (corrections.length > 0) {
+      queries.push({ text: query, weight: ORIGINAL_WEIGHT * 0.5, type: 'original' });
+    }
 
     // Expand query if enabled
     if (config.expandQueries) {
@@ -60,7 +75,7 @@ export async function search(
       const cwd = process.cwd();
       const contextHints = resolveContextForPath(cwd, config.pathContexts);
 
-      const expanded = await expandQueryStructured(query, config, contextHints);
+      const expanded = await expandQueryStructured(searchQuery, config, contextHints);
 
       // Add keyword-optimized queries (for FTS)
       for (const lexQuery of expanded.lex) {
@@ -338,14 +353,22 @@ async function semanticSearch(
 }
 
 /**
- * Keyword search using FTS5
+ * Keyword search using FTS5 with fuzzy fallback.
+ * If strict AND search returns no results, falls back to OR-based fuzzy search.
  */
 function keywordSearch(
   query: string,
   db: MemoryDB,
   candidateCap: number
 ): { chunkId: number; rank: number }[] {
-  return db.searchFTS(query, candidateCap);
+  const results = db.searchFTS(query, candidateCap);
+
+  // If strict search returned no results, try fuzzy OR search
+  if (results.length === 0) {
+    return db.searchFTSFuzzy(query, candidateCap);
+  }
+
+  return results;
 }
 
 function truncateSnippet(content: string, maxLength: number): string {

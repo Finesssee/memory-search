@@ -6,8 +6,10 @@ import { LruCache } from '../utils/lru.js';
 import { MemoryDB } from '../storage/db.js';
 import { logDebug, logWarn, errorMessage } from '../utils/log.js';
 
-const BATCH_SIZE = 100;  // Cloudflare Workers AI can handle larger batches
-const PARALLEL_REQUESTS = 4;  // Fire multiple batches concurrently
+const BATCH_SIZE = 50;   // Balanced batch size for Cloudflare Workers
+const PARALLEL_REQUESTS = 2;  // Moderate parallelism to avoid rate limiting
+const COOLDOWN_EVERY = 300;   // Pause every N batches to let Worker AI backend recover
+const COOLDOWN_MS = 60000;    // 60s cooldown to reset rate limit window
 
 // LRU cache for query embeddings (max 200 entries)
 const queryEmbeddingCache = new LruCache<string, Float32Array>(200);
@@ -57,6 +59,25 @@ export async function getEmbedding(
   }
 }
 
+/**
+ * Sanitize text for embedding API - remove null bytes, control chars,
+ * and base64 data URIs that bloat payloads without adding search value.
+ * Also truncates to a max length since embedding models have fixed context windows.
+ */
+const MAX_EMBED_CHARS = 8000; // ~2000 tokens, well within model limits
+
+function sanitizeForEmbedding(text: string): string {
+  let clean = text
+    // Strip base64 data URIs (e.g., data:image/png;base64,...) — useless for semantic search
+    .replace(/data:[a-zA-Z]+\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/g, '[image]')
+    // Remove null bytes and non-printable control characters (except newline, tab)
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  if (clean.length > MAX_EMBED_CHARS) {
+    clean = clean.slice(0, MAX_EMBED_CHARS);
+  }
+  return clean;
+}
+
 export async function getEmbeddingsBatch(
   texts: string[],
   config: Config
@@ -69,10 +90,12 @@ export async function getEmbeddingsBatch(
     logWarn('embeddings', 'Local LLM not available, falling back to API');
   }
 
+  const sanitized = texts.map(sanitizeForEmbedding);
+
   const response = await fetchWithRetry(config.embeddingEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: texts }),
+    body: JSON.stringify({ content: sanitized }),
   });
 
   if (!response.ok) {
@@ -91,7 +114,8 @@ export async function getEmbeddingsBatch(
 }
 
 /**
- * Process embeddings in parallel batches for maximum throughput
+ * Process embeddings in parallel batches for maximum throughput.
+ * Falls back to smaller batches on failure.
  */
 export async function getEmbeddingsParallel(
   texts: string[],
@@ -112,16 +136,55 @@ export async function getEmbeddingsParallel(
     const parallelBatches = batches.slice(i, i + PARALLEL_REQUESTS);
     const batchIndices = parallelBatches.map((_, idx) => i + idx);
 
-    const parallelResults = await Promise.all(
+    const parallelResults = await Promise.allSettled(
       parallelBatches.map(batch => getEmbeddingsBatch(batch, config))
     );
 
-    // Store results in correct order
-    parallelResults.forEach((result, idx) => {
-      results[batchIndices[idx]] = result;
+    // Handle results, falling back to individual items on batch failure
+    for (let j = 0; j < parallelResults.length; j++) {
+      const result = parallelResults[j];
+      if (result.status === 'fulfilled') {
+        results[batchIndices[j]] = result.value;
+      } else {
+        logWarn('embeddings', `Batch ${batchIndices[j] + 1} failed, retrying items individually`, { error: errorMessage(result.reason) });
+        // Wait before retrying to let rate limits cool down
+        await new Promise(r => setTimeout(r, 5000));
+        // Retry individual items
+        const batch = parallelBatches[j];
+        const individualResults: Float32Array[] = [];
+        for (const text of batch) {
+          try {
+            const [embedding] = await getEmbeddingsBatch([text], config);
+            individualResults.push(embedding);
+          } catch (err) {
+            logWarn('embeddings', 'Individual embedding failed, using zero vector', { error: errorMessage(err) });
+            individualResults.push(new Float32Array(config.embeddingDimensions));
+          }
+        }
+        results[batchIndices[j]] = individualResults;
+      }
       completedBatches++;
       onBatchComplete?.(completedBatches, batches.length);
-    });
+    }
+
+    // Cooldown pause every COOLDOWN_EVERY batches to let Worker recover
+    if (completedBatches > 0 && completedBatches % COOLDOWN_EVERY === 0 && i + PARALLEL_REQUESTS < batches.length) {
+      logDebug('embeddings', `Cooldown after ${completedBatches} batches (${COOLDOWN_MS / 1000}s pause)`);
+      await new Promise(r => setTimeout(r, COOLDOWN_MS));
+      // Health check: verify Worker is responding before resuming
+      for (let hc = 0; hc < 5; hc++) {
+        try {
+          const ok = await checkEmbeddingServer(config);
+          if (ok) break;
+        } catch { /* ignore */ }
+        logDebug('embeddings', `Worker still down after cooldown, waiting another 30s (attempt ${hc + 1}/5)`);
+        await new Promise(r => setTimeout(r, 30000));
+      }
+    }
+    // Small delay between batch groups to avoid rate limiting
+    else if (i + PARALLEL_REQUESTS < batches.length) {
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
 
   // Flatten results

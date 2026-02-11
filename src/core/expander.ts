@@ -90,13 +90,19 @@ interface ChatResponse {
 /**
  * Generate a hypothetical answer for HyDE (Hypothetical Document Embeddings).
  * The hypothetical answer is embedded and used for semantic search.
+ *
+ * The prompt is designed to generate a passage that resembles an actual document
+ * rather than a brief answer — this produces embeddings that are much closer
+ * to the target documents in vector space, especially for vague queries.
  */
 export async function generateHyDE(query: string, config: Config): Promise<string> {
   const chatEndpoint = getChatEndpoint(config.embeddingEndpoint);
 
-  const prompt = `Answer this question in 2-3 sentences as if you know the answer:
-Question: ${query}
-Answer:`;
+  const prompt = `You are writing a passage from a knowledge base document that would perfectly answer the following query. Write a detailed, information-rich paragraph (4-6 sentences) as if it were extracted from an actual document. Include specific terms, technical details, examples, and related concepts that would naturally appear in such a document. Do NOT write as a Q&A — write as if you are the document itself.
+
+Query: ${query}
+
+Document passage:`;
 
   try {
     const response = await fetchWithRetry(chatEndpoint, {

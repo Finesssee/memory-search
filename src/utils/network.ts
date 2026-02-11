@@ -13,7 +13,7 @@ export async function fetchWithRetry(
   init: RequestInit,
   opts: FetchOptions = {}
 ): Promise<Response> {
-  const { timeoutMs = 10000, retries = 2, backoffMs = 300 } = opts;
+  const { timeoutMs = 30000, retries = 5, backoffMs = 500 } = opts;
   for (let attempt = 0; attempt <= retries; attempt++) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -21,10 +21,13 @@ export async function fetchWithRetry(
       const res = await fetch(url, { ...init, signal: controller.signal });
       clearTimeout(timeout);
       if (res.ok) return res;
-      if (attempt < retries) {
+      // Retry on server errors (500, 502, 503, 429)
+      const retryable = res.status >= 500 || res.status === 429;
+      if (attempt < retries && retryable) {
         logDebug('network', `Request to ${url} returned ${res.status}, retrying (${attempt + 1}/${retries})`);
+      } else {
+        return res;
       }
-      if (attempt === retries) return res;
     } catch (err) {
       clearTimeout(timeout);
       if (attempt < retries) {
@@ -32,7 +35,7 @@ export async function fetchWithRetry(
       }
       if (attempt === retries) throw err;
     }
-    const delay = backoffMs * Math.pow(2, attempt) + Math.floor(Math.random() * 50);
+    const delay = backoffMs * Math.pow(2, attempt) + Math.floor(Math.random() * 200);
     await new Promise(r => setTimeout(r, delay));
   }
   throw new Error('fetchWithRetry: unreachable');

@@ -404,8 +404,9 @@ export class MemoryDB {
   /**
    * Build an FTS5 query string from user input.
    * Handles quoted phrases and individual terms with AND logic.
+   * Adds column-specific boosting for headings and filename matches.
    */
-  private buildFtsQuery(query: string): string {
+  private buildFtsQuery(query: string, useOr = false): string {
     const phrases = Array.from(query.matchAll(/"([^"]+)"/g)).map(m => m[1]).filter(Boolean);
     const cleaned = query.replace(/"[^"]+"/g, ' ');
     const terms = cleaned.split(/\s+/).map(t => t.trim()).filter(t => t.length > 1);
@@ -414,15 +415,38 @@ export class MemoryDB {
       ...terms.map(t => t.replace(/["']/g, '')),
     ];
     if (tokens.length === 0) return '';
-    return tokens.join(' AND ');
+    const joiner = useOr ? ' OR ' : ' AND ';
+    return tokens.join(joiner);
   }
 
   /**
-   * Full-text search using FTS5 with BM25 ranking
+   * Build an FTS5 query that searches specific columns with boosting.
+   * Searches headings, filename, and path_tokens in addition to content.
+   * This catches title/heading matches that the default query might rank low.
+   */
+  private buildBoostedFtsQuery(query: string): string {
+    const cleaned = query.replace(/"[^"]+"/g, ' ');
+    const terms = cleaned.split(/\s+/).map(t => t.trim()).filter(t => t.length > 1).map(t => t.replace(/["']/g, ''));
+    if (terms.length === 0) return '';
+
+    // Build OR query across columns: content match OR heading match OR filename match
+    const contentMatch = terms.join(' AND ');
+    const headingMatch = terms.map(t => `headings:${t}`).join(' OR ');
+    const filenameMatch = terms.map(t => `filename:${t}`).join(' OR ');
+
+    return `(${contentMatch}) OR (${headingMatch}) OR (${filenameMatch})`;
+  }
+
+  /**
+   * Full-text search using FTS5 with BM25 ranking.
+   * Uses boosted query that searches across all columns.
    */
   searchFTS(query: string, limit = 50): { chunkId: number; rank: number }[] {
     try {
-      const ftsQuery = this.buildFtsQuery(query);
+      // Try boosted query first for better title/heading matching
+      const boostedQuery = this.buildBoostedFtsQuery(query);
+      const strictQuery = this.buildFtsQuery(query);
+      const ftsQuery = boostedQuery || strictQuery;
       if (!ftsQuery) return [];
 
       const rows = this.db.prepare(`
@@ -435,8 +459,83 @@ export class MemoryDB {
 
       return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
     } catch (err) {
-      logWarn('db', 'FTS5 search failed', { query, error: errorMessage(err) });
+      // Fall back to strict AND query on error (boosted query may have syntax issues)
+      try {
+        const fallbackQuery = this.buildFtsQuery(query);
+        if (!fallbackQuery) return [];
+        const rows = this.db.prepare(`
+          SELECT rowid, bm25(chunks_fts, 1.0, 4.0, 2.0, 3.0) as rank
+          FROM chunks_fts
+          WHERE chunks_fts MATCH ?
+          ORDER BY rank
+          LIMIT ?
+        `).all(fallbackQuery, limit) as { rowid: number; rank: number }[];
+        return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
+      } catch (err2) {
+        logWarn('db', 'FTS5 search failed', { query, error: errorMessage(err2) });
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Fuzzy FTS search using OR logic instead of AND.
+   * Used as fallback when strict AND search returns no results (e.g., typos).
+   */
+  searchFTSFuzzy(query: string, limit = 50): { chunkId: number; rank: number }[] {
+    try {
+      const ftsQuery = this.buildFtsQuery(query, true); // OR mode
+      if (!ftsQuery) return [];
+
+      const rows = this.db.prepare(`
+        SELECT rowid, bm25(chunks_fts, 1.0, 4.0, 2.0, 3.0) as rank
+        FROM chunks_fts
+        WHERE chunks_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(ftsQuery, limit) as { rowid: number; rank: number }[];
+
+      return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
+    } catch (err) {
+      logWarn('db', 'FTS5 fuzzy search failed', { query, error: errorMessage(err) });
       return [];
+    }
+  }
+
+  /**
+   * Get unique vocabulary terms from the FTS index.
+   * Used by spell corrector to find closest matches for misspelled words.
+   */
+  getFtsVocabulary(): string[] {
+    try {
+      const rows = this.db.prepare(`
+        SELECT DISTINCT term FROM chunks_fts_vocab
+        WHERE col = '*' AND term NOT GLOB '*[0-9]*'
+        LIMIT 50000
+      `).all() as { term: string }[];
+      return rows.map(r => r.term);
+    } catch {
+      // FTS vocab table may not exist — try extracting from content directly
+      try {
+        const rows = this.db.prepare(`
+          SELECT DISTINCT content FROM (
+            SELECT filename as content FROM chunks_fts
+            UNION ALL
+            SELECT headings as content FROM chunks_fts
+          ) WHERE content != ''
+          LIMIT 5000
+        `).all() as { content: string }[];
+        const words = new Set<string>();
+        for (const row of rows) {
+          for (const word of row.content.split(/\s+/)) {
+            const clean = word.toLowerCase().replace(/[^a-z0-9]/g, '');
+            if (clean.length >= 2) words.add(clean);
+          }
+        }
+        return Array.from(words);
+      } catch {
+        return [];
+      }
     }
   }
 
@@ -998,7 +1097,7 @@ export class MemoryDB {
     return this.db.prepare('SELECT doc_chunk_hash as hash, context_prefix as prefix, created_at as createdAt FROM context_cache').all() as any[];
   }
 
-  getAllChunksForExport(): Array<{filePath: string; chunkIndex: number; content: string; lineStart: number; lineEnd: number; observationType: string|null; concepts: string|null; filesReferenced: string|null; sessionId: string|null; contentHash: string|null; contextPrefix: string|null}> {
+  getAllChunksForExport(): Array<{ filePath: string; chunkIndex: number; content: string; lineStart: number; lineEnd: number; observationType: string | null; concepts: string | null; filesReferenced: string | null; sessionId: string | null; contentHash: string | null; contextPrefix: string | null }> {
     return this.db.prepare(`
       SELECT f.path as filePath, c.chunk_index as chunkIndex, c.content,
              c.line_start as lineStart, c.line_end as lineEnd,

@@ -55,6 +55,10 @@ export function chunkMarkdown(content: string, options: ChunkOptions | number = 
     options = { maxTokens: options };
   }
 
+  // Strip inline base64 data URIs before chunking — they bloat chunks
+  // without adding search value (e.g., CoSidian conversation exports with embedded images)
+  content = content.replace(/data:[a-zA-Z]+\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+/g, '[image]');
+
   const maxTokens = options.maxTokens ?? 1000;
   const overlapTokens = options.overlapTokens ?? 150;
   const filePath = options.filePath;
