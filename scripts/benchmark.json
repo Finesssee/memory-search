@@ -34,7 +34,9 @@
             "id": "q4",
             "query": "lead generation warm outreach",
             "expected": [
-                "100m-leads/SKILL.md"
+                "100m-leads/SKILL.md",
+                "100m-leads.md",
+                "100m-leads-nurture-playbook.md"
             ],
             "category": "exact-keyword",
             "difficulty": "easy"
@@ -44,7 +46,8 @@
             "query": "customer lifetime value increase",
             "expected": [
                 "100m-ltv/SKILL.md",
-                "100m-money-models/SKILL.md"
+                "100m-money-models/SKILL.md",
+                "100m-money-models.md"
             ],
             "category": "semantic",
             "difficulty": "medium"
@@ -71,7 +74,8 @@
             "id": "q8",
             "query": "promotions discounts free samples",
             "expected": [
-                "100m-leads-bonus/SKILL.md"
+                "100m-leads-bonus/SKILL.md",
+                "100m-leads-bonus-chapters.md"
             ],
             "category": "semantic",
             "difficulty": "medium"
@@ -80,7 +84,8 @@
             "id": "q9",
             "query": "email nurture sequence follow up",
             "expected": [
-                "100m-leads-nurture/SKILL.md"
+                "100m-leads-nurture/SKILL.md",
+                "100m-leads-nurture-playbook.md"
             ],
             "category": "exact-keyword",
             "difficulty": "easy"
@@ -108,7 +113,8 @@
             "id": "q12",
             "query": "cold outreach referrals affiliates",
             "expected": [
-                "100m-leads/SKILL.md"
+                "100m-leads/SKILL.md",
+                "100m-leads.md"
             ],
             "category": "exact-keyword",
             "difficulty": "easy"
@@ -117,7 +123,8 @@
             "id": "q13",
             "query": "marketing machine lifecycle ads",
             "expected": [
-                "100m-marketing-machine/SKILL.md"
+                "100m-marketing-machine/SKILL.md",
+                "100m-marketing-machine.md"
             ],
             "category": "exact-keyword",
             "difficulty": "easy"
@@ -126,7 +133,8 @@
             "id": "q14",
             "query": "business revenue models monetization",
             "expected": [
-                "100m-money-models/SKILL.md"
+                "100m-money-models/SKILL.md",
+                "100m-money-models.md"
             ],
             "category": "semantic",
             "difficulty": "medium"

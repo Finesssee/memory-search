@@ -439,14 +439,12 @@ export class MemoryDB {
 
   /**
    * Full-text search using FTS5 with BM25 ranking.
-   * Uses boosted query that searches across all columns.
+   * Uses strict AND query with column-weighted BM25 scoring.
+   * Headings and filename columns get higher BM25 weights for natural boosting.
    */
   searchFTS(query: string, limit = 50): { chunkId: number; rank: number }[] {
     try {
-      // Try boosted query first for better title/heading matching
-      const boostedQuery = this.buildBoostedFtsQuery(query);
-      const strictQuery = this.buildFtsQuery(query);
-      const ftsQuery = boostedQuery || strictQuery;
+      const ftsQuery = this.buildFtsQuery(query);
       if (!ftsQuery) return [];
 
       const rows = this.db.prepare(`
@@ -459,22 +457,8 @@ export class MemoryDB {
 
       return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
     } catch (err) {
-      // Fall back to strict AND query on error (boosted query may have syntax issues)
-      try {
-        const fallbackQuery = this.buildFtsQuery(query);
-        if (!fallbackQuery) return [];
-        const rows = this.db.prepare(`
-          SELECT rowid, bm25(chunks_fts, 1.0, 4.0, 2.0, 3.0) as rank
-          FROM chunks_fts
-          WHERE chunks_fts MATCH ?
-          ORDER BY rank
-          LIMIT ?
-        `).all(fallbackQuery, limit) as { rowid: number; rank: number }[];
-        return rows.map(row => ({ chunkId: row.rowid, rank: row.rank }));
-      } catch (err2) {
-        logWarn('db', 'FTS5 search failed', { query, error: errorMessage(err2) });
-        return [];
-      }
+      logWarn('db', 'FTS5 search failed', { query, error: errorMessage(err) });
+      return [];
     }
   }
 
